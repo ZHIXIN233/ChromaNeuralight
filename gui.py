@@ -725,9 +725,23 @@ class MainWindow(QMainWindow):
         print("Loading model parameters...")
         self.onclick_update()
         dict = torch.load('model_parameters.pth')
-        self.shading_model.load_state_dict(dict['model_state_dict'])
+        model_state_dict = dict['model_state_dict']
+        current_state_dict = self.shading_model.state_dict()
+        removed_keys = []
+        for key, value in list(model_state_dict.items()):
+            if key in current_state_dict and current_state_dict[key].shape != value.shape:
+                removed_keys.append(key)
+                model_state_dict.pop(key)
+        if removed_keys:
+            print("Removed mismatched keys:", removed_keys)
+        load_result = self.shading_model.load_state_dict(model_state_dict, strict=False)
+        if load_result.missing_keys or load_result.unexpected_keys:
+            print("Model parameter mismatch detected. Missing keys:", load_result.missing_keys)
+            print("Model parameter mismatch detected. Unexpected keys:", load_result.unexpected_keys)
         r_vec = dict['so3'].squeeze()
         self.shading_model.light.set_r_vec(tuple([r_vec[0], r_vec[1], r_vec[2]]))
+        if "light.light_color_log" in load_result.missing_keys:
+            self.shading_model.light.set_light_color(self.get_light_color())
         if hasattr(self.shading_model.light, 'sigma'):
             if self.shading_model.light.sigma.ndim == 0:
                 self.update_shading_model_param(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.sigma, 0])
