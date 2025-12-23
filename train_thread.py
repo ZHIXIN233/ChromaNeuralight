@@ -94,7 +94,14 @@ class TrainingThread(QThread):
             case "\u03C3_x":
                 return [{'params': [self.shading_model.light.sigma], 'lr': self.lr['\u03C3_x'], 'name': 'sigma'}]
             case "MLP parameters":
-                return [{'params': self.shading_model.light.mlp.parameters(), 'lr': self.lr['MLP parameters'], 'name': 'mlp0'}]
+                if hasattr(self.shading_model.light, 'trunk') and hasattr(self.shading_model.light, 'intensity_head'):
+                    return [
+                        {'params': self.shading_model.light.trunk.parameters(), 'lr': self.lr['MLP parameters'], 'name': 'mlp_trunk'},
+                        {'params': self.shading_model.light.intensity_head.parameters(), 'lr': self.lr['MLP parameters'], 'name': 'mlp_intensity'},
+                    ]
+                if hasattr(self.shading_model.light, 'mlp'):
+                    return [{'params': self.shading_model.light.mlp.parameters(), 'lr': self.lr['MLP parameters'], 'name': 'mlp0'}]
+                return []
             case "Light Color":
                 return [{'params': [self.shading_model.light.light_color_log], 'lr': self.lr['Light Color'], 'name': 'light_color'}]
             case "Chroma Head":
