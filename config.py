@@ -28,6 +28,7 @@ class TrainingConfig():
     undistort_image: bool = False
     lightmodel_lr: float = 5e-3 # lr for e.g. Sigma of Gaussians, Weights of MLP
     split: int = 4
+    color_mode: str = "Grayscale" # "Grayscale" or "RGB"
 
 @dataclass(frozen=True)
 class GUIConfig():
@@ -84,6 +85,12 @@ class GUIConfig():
     error_decimal: int = 3
     lr_input_width: int = 70
     progress_bar_length: int = 120
+    color_mode_default: str = "Grayscale"
+    light_color_step: float = 0.1
+    light_color_min: float = 0.0
+    light_color_max: float = 10.0
+    light_color_default: float = 1.0
+    light_color_decimal: int = 2
 
 
 

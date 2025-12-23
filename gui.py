@@ -39,12 +39,14 @@ class MainWindow(QMainWindow):
             brdf=self.training_config.brdf,
             light=self.training_config.light,
             device=self.training_config.device,
+            color_mode=self.training_config.color_mode,
         )
         self.dataset = CaliDataset(
             image_path=self.training_config.image_path,
             device=self.training_config.device,
             undistort_imgs=self.training_config.undistort_image,
-            camera_name=self.training_config.camera_name
+            camera_name=self.training_config.camera_name,
+            color_mode=self.training_config.color_mode,
         )
 
         test_size = int(len(self.dataset) / self.training_config.split)
@@ -449,6 +451,36 @@ class MainWindow(QMainWindow):
         self.mlp_hbox.addSpacing(25)
         dropdownlist_layout.addLayout(self.mlp_hbox)
 
+        # Light color parameters
+        self.light_color_layout = QVBoxLayout()
+        hbox = QHBoxLayout()
+        checkbox = WidgetFactory.get_widget("checkbox", window=self)
+        label = QLabel("Light Color", self)
+        hbox.addWidget(checkbox)
+        hbox.addWidget(label)
+        self.light_color_layout.addLayout(hbox)
+        self.checkbox_label_pairs.append((checkbox, label))
+        self.light_color_spin_boxes = []
+        for channel in ["R", "G", "B"]:
+            sub_layout = QHBoxLayout()
+            label = QLabel(channel)
+            sub_layout.addWidget(label)
+            spin_box = WidgetFactory.get_widget(
+                "double_spin_box",
+                window=self,
+                name=f"light_color_spin_box_{channel}",
+                step=self.GUI_config.light_color_step,
+                min=self.GUI_config.light_color_min,
+                max=self.GUI_config.light_color_max,
+                value=self.GUI_config.light_color_default,
+                decimals=self.GUI_config.light_color_decimal,
+            )
+            sub_layout.addWidget(spin_box, alignment=Qt.AlignRight)
+            sub_layout.addSpacing(25)
+            self.light_color_spin_boxes.append(spin_box)
+            self.light_color_layout.addLayout(sub_layout)
+        dropdownlist_layout.addLayout(self.light_color_layout)
+
         # Light learning rate
         lr_layout = QHBoxLayout()
         label = QLabel("lr")
@@ -489,6 +521,21 @@ class MainWindow(QMainWindow):
         self.data_layout.addWidget(self.data_comboBox)
         self.data_layout.addStretch()
         img_column_layout.addLayout(self.data_layout)
+
+        # Color mode
+        self.color_layout = QVBoxLayout()
+        label = QLabel("Color Mode")
+        self.color_layout.addWidget(label)
+        self.color_comboBox = WidgetFactory.get_widget(
+            "combo_box",
+            window=self,
+            items=["Grayscale", "RGB"],
+            current_text=self.training_config.color_mode,
+            onchange=self.check_color_mode_comboBox,
+        )
+        self.color_layout.addWidget(self.color_comboBox)
+        self.color_layout.addStretch()
+        img_column_layout.addLayout(self.color_layout)
 
         # Pagination
         self.page_layout = QVBoxLayout()
@@ -754,6 +801,32 @@ class MainWindow(QMainWindow):
             self.show_sigma_y()
             self.hide_MLP_parameters()
 
+    def show_light_color(self):
+        for i in range(self.light_color_layout.count()):
+            item = self.light_color_layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget():
+                item.widget().show()
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.show()
+
+    def hide_light_color(self):
+        for i in range(self.light_color_layout.count()):
+            item = self.light_color_layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget():
+                item.widget().hide()
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.hide()
+
     def check_data_comboBox(self):
         if self.get_cur_dataset() == "Training set":
             self.current_dataset = self.training_dataset
@@ -764,11 +837,49 @@ class MainWindow(QMainWindow):
         self.update_page_label(self.GUI_config.page_default)
         self.onclick_update()
 
+    def check_color_mode_comboBox(self):
+        self.reload_dataset()
+        self.set_shading_model()
+        if self.get_color_mode() == "RGB":
+            self.show_light_color()
+        else:
+            self.hide_light_color()
+        self.onclick_update()
+
+    def reload_dataset(self):
+        self.dataset = CaliDataset(
+            image_path=self.training_config.image_path,
+            device=self.training_config.device,
+            undistort_imgs=self.training_config.undistort_image,
+            camera_name=self.training_config.camera_name,
+            color_mode=self.get_color_mode(),
+        )
+
+        test_size = int(len(self.dataset) / self.training_config.split)
+        train_size = len(self.dataset) - test_size
+
+        self.training_dataset, self.testing_dataset = random_split(self.dataset, [train_size, test_size])
+
+        self.training_dataloader = DataLoader(
+            self.training_dataset, batch_size=self.training_config.batch_size
+        )
+        self.testing_dataloader = DataLoader(
+            self.testing_dataset, batch_size=self.training_config.batch_size
+        )
+        if self.get_cur_dataset() == "Training set":
+            self.current_dataset = self.training_dataset
+            self.current_dataloader = self.training_dataloader
+        elif self.get_cur_dataset() == "Testing set":
+            self.current_dataset = self.testing_dataset
+            self.current_dataloader = self.testing_dataloader
+        self.update_page_label(self.GUI_config.page_default)
+
     def set_shading_model(self):
         self.shading_model = ShadingModel(
             brdf=self.training_config.brdf,
             light=self.get_light_source().replace(" ", ""),
             device=self.training_config.device,
+            color_mode=self.get_color_mode(),
         )
         self.shading_model.to(device=self.training_config.device)
 
@@ -795,14 +906,18 @@ class MainWindow(QMainWindow):
 
     def set_img(self, im: np.ndarray, flag: str = "raw") -> bool:
         img = cv.pyrDown(im)
-        height, width = img.shape
-        height, width = img.shape
+        height, width = img.shape[0:2]
         zoom_ratio = self.get_zoom_ratio()
         width = int(width * zoom_ratio)
         height = int(height * zoom_ratio)
         img = cv.resize(img, (width, height))
-        bytesPerLine = width
-        qImg = QImage(img.data, width, height, bytesPerLine, QImage.Format_Grayscale8)
+        if img.ndim == 3:
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            bytesPerLine = 3 * width
+            qImg = QImage(img.data, width, height, bytesPerLine, QImage.Format_RGB888)
+        else:
+            bytesPerLine = width
+            qImg = QImage(img.data, width, height, bytesPerLine, QImage.Format_Grayscale8)
         pixmap = QPixmap.fromImage(qImg)
         if flag == "raw":
             self.image_label_raw.setPixmap(pixmap)
@@ -839,6 +954,14 @@ class MainWindow(QMainWindow):
     
     def get_cur_dataset(self) -> string:
         return self.data_comboBox.currentText()
+
+    def get_color_mode(self) -> string:
+        return self.color_comboBox.currentText()
+
+    def get_light_color(self) -> list[float]:
+        if self.get_color_mode() == "RGB":
+            return [spin_box.value() for spin_box in self.light_color_spin_boxes]
+        return [self.GUI_config.light_color_default]
 
     def onclick_stop(self):
         if self.training_thread:
@@ -895,7 +1018,8 @@ class MainWindow(QMainWindow):
             "Rotation": float(self.r_lr_input.text()),
             "Translation": float(self.t_lr_input.text()),
             "\u03C3_x": float(self.light_lr_input.text()),
-            "MLP parameters": float(self.light_lr_input.text())
+            "MLP parameters": float(self.light_lr_input.text()),
+            "Light Color": float(self.light_lr_input.text())
         }
 
     def onclick_start(self):
@@ -919,17 +1043,22 @@ class MainWindow(QMainWindow):
         self.shading_model.light.set_t_vec(t_vec)
         self.shading_model.light.set_r_vec(r_vec)
         self.shading_model.light.set_sigma(sigma) 
+        self.shading_model.light.set_light_color(self.get_light_color())
 
     def update_shading_model_param(self, albedo_value: float, gamma_value: float, tau_value: float, ambient_value: float, t_vec: torch.Tensor, r_vec: torch.Tensor, sigma: list[float]):
-        self.albedo_spin_box.setValue(albedo_value)
-        self.gamma_spin_box.setValue(gamma_value)
-        self.tau_spin_box.setValue(tau_value)
-        self.ambient_spin_box.setValue(ambient_value)
+        self.albedo_spin_box.setValue(float(albedo_value))
+        self.gamma_spin_box.setValue(float(gamma_value))
+        self.tau_spin_box.setValue(float(tau_value))
+        self.ambient_spin_box.setValue(float(ambient_value))
         for i in range(3):
             self.r_layout.itemAt(i+1).itemAt(1).widget().setValue(r_vec[0][0][i])
             self.t_layout.itemAt(i+1).itemAt(1).widget().setValue(t_vec[0][0][i])
         self.sigma_x_spin_box.setValue(sigma[0])
         self.sigma_y_spin_box.setValue(sigma[1])
+        if self.get_color_mode() == "RGB":
+            light_color = self.shading_model.light.light_color.detach().cpu().numpy()
+            for idx, spin_box in enumerate(self.light_color_spin_boxes):
+                spin_box.setValue(float(light_color[idx]))
 
     def update_error(self, imgs_raw: np.ndarray, imgs_rendered: np.ndarray):
         error = 0.
@@ -951,10 +1080,16 @@ class MainWindow(QMainWindow):
             self.current_dataloader
         ):
             rendered_intensities = self.shading_model(pts, rvec_w2c, tvec_w2c)
-            img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
-            img.view(-1)[mask.view(-1)] = rendered_intensities.to(torch.uint8)
-            img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
-            img_viz = cv.pyrDown(img_viz)
+            if img.ndim == 4:
+                img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
+                img.view(-1, 3)[mask.view(-1)] = rendered_intensities.to(torch.uint8)
+                img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
+                img_viz = cv.pyrDown(img_viz)
+            else:
+                img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
+                img.view(-1)[mask.view(-1)] = rendered_intensities.to(torch.uint8)
+                img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
+                img_viz = cv.pyrDown(img_viz)
 
             imgs_raw.append(img_raw)
             imgs_rendered.append(img_viz)
@@ -978,14 +1113,8 @@ def main():
     default_r_vec = (gui_config.r_layout_default["x"], gui_config.r_layout_default["y"], gui_config.r_layout_default["z"])
     main_window.update_shading_model(gui_config.albedo_default, gui_config.gamma_default, gui_config.tau_default, gui_config.ambient_default, default_t_vec, default_r_vec, [gui_config.sigma_default, gui_config.sigma_default])
     
-    imgs_raw, imgs_rendered = main_window.render()
-    main_window.page_layout.itemAt(1).widget().setMaximum(len(imgs_raw))
-    main_window.set_img(imgs_raw[0], flag="raw")
-    main_window.set_img(imgs_rendered[0], flag="rendered")
-    diff = np.clip(np.round(((imgs_rendered[0].astype(np.int16) - imgs_raw[0].astype(np.int16)) + 255) * 0.5).astype(np.uint8), 0, 255)
-    main_window.update_error(imgs_raw, imgs_rendered)
-    main_window.set_img(diff, flag="diff")
     main_window.check_light_comboBox()
+    main_window.check_color_mode_comboBox()
     main_window.show()
     sys.exit(app.exec())
 

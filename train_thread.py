@@ -77,6 +77,8 @@ class TrainingThread(QThread):
                 return [{'params': [self.shading_model.light.sigma], 'lr': self.lr['\u03C3_x'], 'name': 'sigma'}]
             case "MLP parameters":
                 return [{'params': self.shading_model.light.mlp.parameters(), 'lr': self.lr['MLP parameters'], 'name': 'mlp0'}]
+            case "Light Color":
+                return [{'params': [self.shading_model.light.light_color_log], 'lr': self.lr['Light Color'], 'name': 'light_color'}]
             case _:
                 return []
 

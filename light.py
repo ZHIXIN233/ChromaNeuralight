@@ -10,8 +10,18 @@ from lietorch import SO3, LieGroupParameter
 
 class LightBaseLie(nn.Module):
     name = "Light Base"
-    def __init__(self, t_x: float = -0.2266, t_y: float = -0.0022, t_z: float = 0.0761, r_x: float = -0.0027, r_y: float = 0.36, r_z: float = -0.027) -> None:
+    def __init__(
+        self,
+        t_x: float = -0.2266,
+        t_y: float = -0.0022,
+        t_z: float = 0.0761,
+        r_x: float = -0.0027,
+        r_y: float = 0.36,
+        r_z: float = -0.027,
+        channels: int = 1,
+    ) -> None:
         super().__init__()
+        self.channels = channels
         # Translation vector and Rotation vector are light-to-camera transformation.
         # Light is using same convention to camera coordinate: x-right, y-down, z-forward
         # Apply following transformation will transform [ ] from light coordinate to camera coordiante
@@ -22,6 +32,7 @@ class LightBaseLie(nn.Module):
 
         self.gamma_log = nn.Parameter(torch.tensor(-1.59), requires_grad=True)
         self.tau_log = nn.Parameter(torch.tensor(-1.59), requires_grad=True)
+        self.light_color_log = nn.Parameter(torch.zeros(self.channels, device="cuda:0"), requires_grad=True)
 
     def set_t_vec(self, t_tuple: tuple[float, float, float], require_grad: bool = True)->None:
         self._t_vec = nn.Parameter(torch.tensor([[[t_tuple[0], t_tuple[1], t_tuple[2]]]], device="cuda:0", dtype=torch.float64), requires_grad=require_grad)
@@ -46,6 +57,15 @@ class LightBaseLie(nn.Module):
 
     def set_tau(self, tau: float, require_grad: bool = True)->None:
         self.tau_log = nn.Parameter(torch.log(torch.tensor(tau)), requires_grad=require_grad)
+
+    @property
+    def light_color(self):
+        return torch.exp(self.light_color_log)
+
+    def set_light_color(self, light_color: list[float] | tuple[float, float, float], require_grad: bool = True)->None:
+        if len(light_color) != self.channels:
+            raise ValueError("Light color channels mismatch with current light setting.")
+        self.light_color_log = nn.Parameter(torch.log(torch.tensor(light_color, device=self.light_color_log.device)), requires_grad=require_grad)
     
     def c2l(self, pts)-> Tensor:
         return self._r_l2c_SO3.inv().act(pts)
@@ -70,6 +90,11 @@ class LightBaseLie(nn.Module):
         dist_square = torch.sum(x_in_l*x_in_l, dim=-1)
         i_falloff = 1/torch.pow(self.tau+dist_square, self.gamma)
         return i_falloff
+
+    def apply_color(self, intensity: Tensor)->Tensor:
+        if self.channels == 1:
+            return intensity * self.light_color
+        return intensity[..., None] * self.light_color
     
     @property
     def name(self)->str:
@@ -77,8 +102,8 @@ class LightBaseLie(nn.Module):
 
 class LightMLPBase(LightBaseLie):
     name: str = "MLP"
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, channels: int = 1) -> None:
+        super().__init__(channels=channels)
 
     def create_mlp(self, width: int = 20, input_dim: int = 1, output_dim: int = 1, depth: int = 2)->nn.Sequential:
         layers = [nn.Linear(input_dim, width), nn.Softplus()]
@@ -102,7 +127,7 @@ class LightMLPBase(LightBaseLie):
         x_in_l = self.c2l(pts)+self.t_c2l()
         i_falloff = self.lorenzian(x_in_l).to(torch.float32)
         i_mlp = self.mlp_process(x_in_l).squeeze(-1)
-        return i_falloff*i_mlp
+        return self.apply_color(i_falloff*i_mlp)
     
     def mlp_process(self, x_in_l: Tensor)->Tensor:
         raise NotImplementedError("MLP Process not implemented")
@@ -111,8 +136,8 @@ class LightMLPBase(LightBaseLie):
 class LightMLP1D(LightMLPBase):
     name = "1D MLP"
     # Not using due to nosies and peaks in MLP especially at transit of edge.
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, channels: int = 1) -> None:
+        super().__init__(channels=channels)
         self.mlp = self.create_mlp(width=20, input_dim=5, output_dim=1, depth=3)
     
     def mlp_process(self, x_in_l: Tensor)->Tensor:
@@ -140,8 +165,8 @@ class LightMLP1D(LightMLPBase):
 class LightMLP2D(LightMLPBase):
     name = "2D MLP"
     # Not using due to nosies and peaks in MLP especially at transit of edge.
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, channels: int = 1) -> None:
+        super().__init__(channels=channels)
         self.mlp = self.create_mlp(width=128, input_dim=22, output_dim=1, depth=4)
     
     def mlp_process(self, x_in_l: Tensor)->Tensor:
@@ -169,19 +194,19 @@ class LightMLP2D(LightMLPBase):
     
 class PointLightSource(LightBaseLie):
     name = "Point Light Souce"
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, channels: int = 1) -> None:
+        super().__init__(channels=channels)
 
     def forward(self, pts: Tensor)->Tensor:
         x_in_l = self.c2l(pts)+self.t_c2l()
-        return self.lorenzian(x_in_l)
+        return self.apply_color(self.lorenzian(x_in_l))
     
 
 # Experimental
 class Light2DGaussian(LightBaseLie):
     name = "Gaussian2D"
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, channels: int = 1) -> None:
+        super().__init__(channels=channels)
         self.sigma = nn.Parameter(Tensor([13.4, 14.763]), requires_grad=True) # 2D distribution of light intensity
 
     def set_sigma(self, sigma: list[float], require_grad: bool = True)->None:
@@ -195,7 +220,7 @@ class Light2DGaussian(LightBaseLie):
         x_in_l = self.c2l(pts)+self.t_c2l()
         i_falloff = self.lorenzian(x_in_l)
         i_gaussian2d = self.gaussian2d(x_in_l)
-        return i_falloff*i_gaussian2d
+        return self.apply_color(i_falloff*i_gaussian2d)
     
     def gaussian2d(self, x_in_l: Tensor)->Tensor:
         '''
@@ -212,8 +237,8 @@ class Light2DGaussian(LightBaseLie):
 
 class Light1DGaussian(LightBaseLie):
     name = "Gaussian 1D"
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, channels: int = 1) -> None:
+        super().__init__(channels=channels)
         # Gaussian std
         self.sigma = nn.Parameter(torch.tensor(11.0), requires_grad=True) # 2D distribution of light intensity
 
@@ -230,7 +255,7 @@ class Light1DGaussian(LightBaseLie):
         x_in_l = self.c2l(pts)+self.t_c2l()
         i_falloff = self.lorenzian(x_in_l)
         i_gaussian1d = self.gaussian1d(x_in_l)
-        return i_falloff*i_gaussian1d
+        return self.apply_color(i_falloff*i_gaussian1d)
     
     def gaussian1d(self, x_in_l: Tensor)->Tensor:
         '''
@@ -248,16 +273,16 @@ class Light1DGaussian(LightBaseLie):
 class LightFactory:
     Mode: TypeAlias = Literal['Gaussian2D', 'Gaussian1D', "PointLightSource", "1DMLP", "2DMLP"]
     @staticmethod
-    def get_light(Light_type: Mode):
+    def get_light(Light_type: Mode, channels: int = 1):
         if Light_type == "Gaussian2D":
-            return Light2DGaussian()
+            return Light2DGaussian(channels=channels)
         elif Light_type == "Gaussian1D":
-            return Light1DGaussian()
+            return Light1DGaussian(channels=channels)
         elif Light_type == "PointLightSource":
-            return PointLightSource()
+            return PointLightSource(channels=channels)
         elif Light_type == "1DMLP":
-            return LightMLP1D()
+            return LightMLP1D(channels=channels)
         elif Light_type == "2DMLP":
-            return LightMLP2D()
+            return LightMLP2D(channels=channels)
         else:
             raise ValueError(f"Light type {Light_type} not recognized!")

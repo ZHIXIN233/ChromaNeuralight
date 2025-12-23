@@ -11,9 +11,18 @@ import matplotlib.pyplot as plt
 from lietorch import SO3
 
 class ShadingModel(nn.Module):
-    def __init__(self, brdf: str = "Microfacet", light: str = "Gaussian2D", albedo: float = 100.,  device: str = "cpu") -> None:        
+    def __init__(
+        self,
+        brdf: str = "Microfacet",
+        light: str = "Gaussian2D",
+        albedo: float = 100.,
+        device: str = "cpu",
+        color_mode: str = "Grayscale",
+    ) -> None:
         super(ShadingModel, self).__init__()
-        self.light = LightFactory.get_light(light)
+        self.color_mode = color_mode
+        self.channels = 3 if color_mode == "RGB" else 1
+        self.light = LightFactory.get_light(light, channels=self.channels)
         self.brdf = BRDFFactory.get_brdf(brdf)
         self.albedo_log = nn.Parameter(torch.tensor(albedo), requires_grad=True)
         self.ambient_light_log = nn.Parameter(torch.tensor(0.1), requires_grad=True)

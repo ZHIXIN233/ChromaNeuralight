@@ -19,7 +19,12 @@ class CaliDataset(Dataset):
     """Camera and Light calibration"""
 
     def __init__(
-        self, image_path: str, device: str = "cuda:0", undistort_imgs: bool = True, camera_name: str = "Firefly"
+        self,
+        image_path: str,
+        device: str = "cuda:0",
+        undistort_imgs: bool = True,
+        camera_name: str = "Firefly",
+        color_mode: str = "Grayscale",
     ) -> None:
         """
         Arguments:
@@ -32,15 +37,16 @@ class CaliDataset(Dataset):
             f for f in files if any(f.endswith(ext) for ext in image_extensions)
         ]
         image_files = sorted(image_files)
+        self.color_mode = color_mode
         if undistort_imgs:
             imgs = [
-                cv.imread(os.path.join(image_path, image_file), cv.IMREAD_GRAYSCALE)
+                self.read_image(os.path.join(image_path, image_file))
                 for image_file in image_files
             ]
             images, self.new_cam_intrin = self.undistort_images(imgs)
         else:
             images = [
-                cv.imread(os.path.join(image_path, image_file), cv.IMREAD_GRAYSCALE) for image_file in image_files
+                self.read_image(os.path.join(image_path, image_file)) for image_file in image_files
             ]
             cam_intri: CameraIntrinsics = camera_config_factory('FireflyFeb17')
             mtx = cam_intri.camera_matrix
@@ -71,6 +77,11 @@ class CaliDataset(Dataset):
             decode_sharpening=0.5,
             debug=0,
         )
+
+    def read_image(self, image_path: str) -> np.ndarray:
+        if self.color_mode == "RGB":
+            return cv.imread(image_path, cv.IMREAD_COLOR)
+        return cv.imread(image_path, cv.IMREAD_GRAYSCALE)
 
     def get_grid_xyz(self, h, w) -> Tensor:
         grid_x, grid_y = torch.meshgrid(
@@ -111,7 +122,7 @@ class CaliDataset(Dataset):
         centers = []
         tags_corners = []
         imgs = []
-        h, w = images[0].shape
+        h, w = images[0].shape[0:2]
         grid_xyz = self.get_grid_xyz(h,w)
         grid_xyz_list = grid_xyz.view(-1, 3).to(self.device)
 
@@ -119,8 +130,12 @@ class CaliDataset(Dataset):
         target_corners = self.target.get_tag_corners(unit="m").view(-1, 3)
         
         for image in images:
+            if image.ndim == 3:
+                image_gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+            else:
+                image_gray = image
             # curve image values for better detection performance
-            img_curved = np.clip(np.power(image / 255.0, 0.45), 0.0, 1.0)
+            img_curved = np.clip(np.power(image_gray / 255.0, 0.45), 0.0, 1.0)
             img_curved = (img_curved * 255).astype(np.uint8)
             tags = self.at_detector.detect(img_curved)
             centers_curr_img = []
@@ -158,7 +173,10 @@ class CaliDataset(Dataset):
             pts.append(r)
 
         for img, mask in zip(images, masks):
-            intensity = torch.tensor(img, device=self.device, dtype=torch.float64).view(-1)[mask.view(-1)]
+            if img.ndim == 3:
+                intensity = torch.tensor(img, device=self.device, dtype=torch.float64).view(-1, 3)[mask.view(-1)]
+            else:
+                intensity = torch.tensor(img, device=self.device, dtype=torch.float64).view(-1)[mask.view(-1)]
             intensities.append(intensity)
 
         # self.visualize_image_w_mask(imgs, masks)
