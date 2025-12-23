@@ -94,6 +94,8 @@ class LightBaseLie(nn.Module):
     def apply_color(self, intensity: Tensor)->Tensor:
         if self.channels == 1:
             return intensity * self.light_color
+        if intensity.ndim == 3:
+            return intensity * self.light_color
         return intensity[..., None] * self.light_color
     
     @property
