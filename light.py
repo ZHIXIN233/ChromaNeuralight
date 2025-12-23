@@ -199,7 +199,7 @@ class LightMLP1D(LightMLPBase):
         i_mlp = self.mlp_process(x_in_l).squeeze(-1)
         if self.channels == 1:
             return i_falloff*i_mlp
-        return i_falloff[..., None]*i_mlp
+        return self.apply_color(i_falloff*i_mlp)
 
     def mono_intensity(self, pts: Tensor)->Tensor:
         x_in_l = self.c2l(pts)+self.t_c2l()
