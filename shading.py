@@ -63,6 +63,8 @@ class ShadingModel(nn.Module):
         pts_in_cam = R_w2c.act(pts)+t_w2c
 
         incident_light = self.light(pts_in_cam) # convert to camera coordinate first
+        if incident_light.ndim == 3:
+            reflectance = reflectance[..., None]
         reflected_light = self.albedo*reflectance*(incident_light+self.ambient_light)
         return torch.clamp(reflected_light, 0.0, 255.0)
 

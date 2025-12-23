@@ -852,8 +852,12 @@ class MainWindow(QMainWindow):
     def show_MLP_parameters(self):
         self.mlp_hbox.itemAt(0).widget().show()
         self.mlp_hbox.itemAt(1).widget().show()
-        self.chroma_hbox.itemAt(0).widget().show()
-        self.chroma_hbox.itemAt(1).widget().show()
+        if self.get_color_mode() == "RGB":
+            self.chroma_hbox.itemAt(0).widget().show()
+            self.chroma_hbox.itemAt(1).widget().show()
+        else:
+            self.chroma_hbox.itemAt(0).widget().hide()
+            self.chroma_hbox.itemAt(1).widget().hide()
 
     def hide_MLP_parameters(self):
         self.mlp_hbox.itemAt(0).widget().hide()
