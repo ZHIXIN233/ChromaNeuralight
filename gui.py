@@ -451,6 +451,15 @@ class MainWindow(QMainWindow):
         self.mlp_hbox.addSpacing(25)
         dropdownlist_layout.addLayout(self.mlp_hbox)
 
+        self.chroma_hbox = QHBoxLayout()
+        checkbox = WidgetFactory.get_widget("checkbox", window=self)
+        label = QLabel("Chroma Head", self)
+        self.chroma_hbox.addWidget(checkbox)
+        self.chroma_hbox.addWidget(label)
+        self.checkbox_label_pairs.append((checkbox, label))
+        self.chroma_hbox.addSpacing(25)
+        dropdownlist_layout.addLayout(self.chroma_hbox)
+
         # Light color parameters
         self.light_color_layout = QVBoxLayout()
         hbox = QHBoxLayout()
@@ -621,6 +630,47 @@ class MainWindow(QMainWindow):
         )
         self.num_epoch_layout.addWidget(spin_box)
         training_column_layout.addLayout(self.num_epoch_layout)
+
+        # Chroma finetune options
+        self.chroma_finetune_layout = QVBoxLayout()
+        self.chroma_finetune_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.chroma_finetune_layout.addWidget(QLabel("Chroma Finetune Only"))
+        self.chroma_finetune_layout.addWidget(self.chroma_finetune_checkbox)
+
+        self.consistency_layout = QHBoxLayout()
+        self.consistency_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.consistency_layout.addWidget(self.consistency_checkbox)
+        self.consistency_layout.addWidget(QLabel("Consistency Weight"))
+        self.consistency_weight_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.consistency_weight_default),
+        )
+        self.consistency_layout.addWidget(self.consistency_weight_input)
+        self.chroma_finetune_layout.addLayout(self.consistency_layout)
+
+        self.chroma_reg_layout = QHBoxLayout()
+        self.chroma_reg_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.chroma_reg_layout.addWidget(self.chroma_reg_checkbox)
+        self.chroma_reg_layout.addWidget(QLabel("Chroma Reg Weight"))
+        self.chroma_reg_weight_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.chroma_reg_weight_default),
+        )
+        self.chroma_reg_layout.addWidget(self.chroma_reg_weight_input)
+        self.chroma_finetune_layout.addLayout(self.chroma_reg_layout)
+
+        self.chroma_clamp_layout = QHBoxLayout()
+        self.chroma_clamp_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.chroma_clamp_layout.addWidget(self.chroma_clamp_checkbox)
+        self.chroma_clamp_layout.addWidget(QLabel("Chroma Clamp"))
+        self.chroma_clamp_value_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.chroma_clamp_default),
+        )
+        self.chroma_clamp_layout.addWidget(self.chroma_clamp_value_input)
+        self.chroma_finetune_layout.addLayout(self.chroma_clamp_layout)
+
+        training_column_layout.addLayout(self.chroma_finetune_layout)
         training_layout.addLayout(training_column_layout)
         training_frame.setLayout(training_layout)
         self.param_layout.addWidget(training_frame)
@@ -726,6 +776,18 @@ class MainWindow(QMainWindow):
         self.onclick_update()
         dict = torch.load('model_parameters.pth')
         model_state_dict = dict['model_state_dict']
+        if any(key.startswith("light.mlp.") for key in model_state_dict.keys()):
+            remapped_state_dict = {}
+            for key, value in model_state_dict.items():
+                if key.startswith("light.mlp.0."):
+                    remapped_state_dict[key.replace("light.mlp.0.", "light.trunk.0.")] = value
+                elif key.startswith("light.mlp.2."):
+                    remapped_state_dict[key.replace("light.mlp.2.", "light.trunk.2.")] = value
+                elif key.startswith("light.mlp.4."):
+                    remapped_state_dict[key.replace("light.mlp.4.", "light.intensity_head.0.")] = value
+                else:
+                    remapped_state_dict[key] = value
+            model_state_dict = remapped_state_dict
         current_state_dict = self.shading_model.state_dict()
         removed_keys = []
         for key, value in list(model_state_dict.items()):
@@ -790,30 +852,41 @@ class MainWindow(QMainWindow):
     def show_MLP_parameters(self):
         self.mlp_hbox.itemAt(0).widget().show()
         self.mlp_hbox.itemAt(1).widget().show()
+        self.chroma_hbox.itemAt(0).widget().show()
+        self.chroma_hbox.itemAt(1).widget().show()
 
     def hide_MLP_parameters(self):
         self.mlp_hbox.itemAt(0).widget().hide()
         self.mlp_hbox.itemAt(1).widget().hide()
+        self.chroma_hbox.itemAt(0).widget().hide()
+        self.chroma_hbox.itemAt(1).widget().hide()
 
     def check_light_comboBox(self):
         if self.get_light_source() == "Point Light Source":
             self.hide_sigma_x()
             self.hide_sigma_y()
             self.hide_MLP_parameters()
+            self.hide_chroma_finetune()
         elif self.get_light_source() == "1D MLP" or self.get_light_source() == "2D MLP":
             self.hide_sigma_x()
             self.hide_sigma_y()
             self.show_MLP_parameters()
+            if self.get_color_mode() == "RGB" and self.get_light_source() == "1D MLP":
+                self.show_chroma_finetune()
+            else:
+                self.hide_chroma_finetune()
         elif self.get_light_source() == "Gaussian 1D":
             self.sigma_x_label.setText("\u03C3")
             self.show_sigma_x()
             self.hide_sigma_y()
             self.hide_MLP_parameters()
+            self.hide_chroma_finetune()
         elif self.get_light_source() == "Gaussian 2D":
             self.sigma_x_label.setText("\u03C3_x")
             self.show_sigma_x()
             self.show_sigma_y()
             self.hide_MLP_parameters()
+            self.hide_chroma_finetune()
 
     def show_light_color(self):
         for i in range(self.light_color_layout.count()):
@@ -841,6 +914,32 @@ class MainWindow(QMainWindow):
                     if widget:
                         widget.hide()
 
+    def show_chroma_finetune(self):
+        for i in range(self.chroma_finetune_layout.count()):
+            item = self.chroma_finetune_layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget():
+                item.widget().show()
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.show()
+
+    def hide_chroma_finetune(self):
+        for i in range(self.chroma_finetune_layout.count()):
+            item = self.chroma_finetune_layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget():
+                item.widget().hide()
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.hide()
+
     def check_data_comboBox(self):
         if self.get_cur_dataset() == "Training set":
             self.current_dataset = self.training_dataset
@@ -856,8 +955,12 @@ class MainWindow(QMainWindow):
         self.set_shading_model()
         if self.get_color_mode() == "RGB":
             self.show_light_color()
+            self.show_chroma_finetune()
         else:
             self.hide_light_color()
+            self.hide_chroma_finetune()
+            self.chroma_finetune_checkbox.setChecked(False)
+        self.check_light_comboBox()
         self.onclick_update()
 
     def reload_dataset(self):
@@ -977,6 +1080,28 @@ class MainWindow(QMainWindow):
             return [spin_box.value() for spin_box in self.light_color_spin_boxes]
         return [self.GUI_config.light_color_default]
 
+    def get_chroma_finetune(self) -> bool:
+        return (
+            self.get_color_mode() == "RGB"
+            and self.get_light_source() == "1D MLP"
+            and self.chroma_finetune_checkbox.isChecked()
+        )
+
+    def get_consistency_weight(self) -> float:
+        if not self.consistency_checkbox.isChecked():
+            return 0.0
+        return float(self.consistency_weight_input.text())
+
+    def get_chroma_reg_weight(self) -> float:
+        if not self.chroma_reg_checkbox.isChecked():
+            return 0.0
+        return float(self.chroma_reg_weight_input.text())
+
+    def get_chroma_clamp(self) -> tuple[bool, float]:
+        if not self.chroma_clamp_checkbox.isChecked():
+            return False, float(self.GUI_config.chroma_clamp_default)
+        return True, float(self.chroma_clamp_value_input.text())
+
     def onclick_stop(self):
         if self.training_thread:
             self.training_thread.stop()
@@ -1033,7 +1158,8 @@ class MainWindow(QMainWindow):
             "Translation": float(self.t_lr_input.text()),
             "\u03C3_x": float(self.light_lr_input.text()),
             "MLP parameters": float(self.light_lr_input.text()),
-            "Light Color": float(self.light_lr_input.text())
+            "Light Color": float(self.light_lr_input.text()),
+            "Chroma Head": float(self.light_lr_input.text())
         }
 
     def onclick_start(self):
@@ -1041,7 +1167,23 @@ class MainWindow(QMainWindow):
         self.update_progress_bar(0)
         self.disable_start_button()
         self.disable_update_button()
-        self.training_thread = TrainingThread(self.shading_model, self.training_dataloader, self.render, self.check_selected_parameters(), self.get_num_epoch(), self.get_all_lr())
+        train_params = self.check_selected_parameters()
+        if self.get_chroma_finetune():
+            train_params = ["Chroma Head"]
+        chroma_clamp_enabled, chroma_clamp_value = self.get_chroma_clamp()
+        self.training_thread = TrainingThread(
+            self.shading_model,
+            self.training_dataloader,
+            self.render,
+            train_params,
+            self.get_num_epoch(),
+            self.get_all_lr(),
+            chroma_finetune=self.get_chroma_finetune(),
+            consistency_weight=self.get_consistency_weight(),
+            chroma_reg_weight=self.get_chroma_reg_weight(),
+            chroma_clamp_enabled=chroma_clamp_enabled,
+            chroma_clamp_value=chroma_clamp_value,
+        )
         self.training_thread.update_images.connect(self.update_images)
         self.training_thread.update_shading_model_param.connect(self.update_shading_model_param)
         self.training_thread.update_progress_bar.connect(self.update_progress_bar)
@@ -1096,12 +1238,12 @@ class MainWindow(QMainWindow):
             rendered_intensities = self.shading_model(pts, rvec_w2c, tvec_w2c)
             if img.ndim == 4:
                 img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
-                img.view(-1, 3)[mask.view(-1)] = rendered_intensities.to(torch.uint8)
+                img.view(-1, 3)[mask.view(-1)] = rendered_intensities.squeeze(0).to(torch.uint8)
                 img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
                 img_viz = cv.pyrDown(img_viz)
             else:
                 img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
-                img.view(-1)[mask.view(-1)] = rendered_intensities.to(torch.uint8)
+                img.view(-1)[mask.view(-1)] = rendered_intensities.squeeze(0).to(torch.uint8)
                 img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
                 img_viz = cv.pyrDown(img_viz)
 

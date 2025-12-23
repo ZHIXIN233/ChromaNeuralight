@@ -138,7 +138,31 @@ class LightMLP1D(LightMLPBase):
     # Not using due to nosies and peaks in MLP especially at transit of edge.
     def __init__(self, channels: int = 1) -> None:
         super().__init__(channels=channels)
-        self.mlp = self.create_mlp(width=20, input_dim=5, output_dim=1, depth=3)
+        self.trunk = nn.Sequential(
+            nn.Linear(5, 20),
+            nn.Softplus(),
+            nn.Linear(20, 20),
+            nn.Softplus(),
+        )
+        self.intensity_head = nn.Sequential(
+            nn.Linear(20, 1),
+            nn.Softplus(),
+        )
+        self.chroma_head = nn.Sequential(
+            nn.Linear(20, 3),
+        )
+        for module in [self.trunk, self.intensity_head]:
+            for m in module.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    nn.init.constant_(m.bias, 0)
+        for m in self.chroma_head.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.constant_(m.weight, 0)
+                nn.init.constant_(m.bias, 0)
+        self.chroma_clamp_enabled = False
+        self.chroma_clamp = 0.15
+        self.last_delta = None
     
     def mlp_process(self, x_in_l: Tensor)->Tensor:
         '''
@@ -157,8 +181,53 @@ class LightMLP1D(LightMLPBase):
         x_y4 = torch.cos(8*x_y)
         x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
 
-        i_mlp = self.mlp(x_y)
-        return i_mlp
+        h = self.trunk(x_y)
+        i_mono = self.intensity_head(h)
+        if self.channels == 1:
+            return i_mono
+        delta = self.chroma_head(h)
+        delta = delta - delta.mean(dim=-1, keepdim=True)
+        if self.chroma_clamp_enabled:
+            delta = torch.clamp(delta, -self.chroma_clamp, self.chroma_clamp)
+        self.last_delta = delta
+        gain = torch.exp(delta)
+        return i_mono * gain
+
+    def forward(self, pts: Tensor)-> Tensor:
+        x_in_l = self.c2l(pts)+self.t_c2l()
+        i_falloff = self.lorenzian(x_in_l).to(torch.float32)
+        i_mlp = self.mlp_process(x_in_l).squeeze(-1)
+        if self.channels == 1:
+            return i_falloff*i_mlp
+        return i_falloff[..., None]*i_mlp
+
+    def mono_intensity(self, pts: Tensor)->Tensor:
+        x_in_l = self.c2l(pts)+self.t_c2l()
+        i_falloff = self.lorenzian(x_in_l).to(torch.float32)
+        x_in_l = x_in_l/x_in_l[..., 2, None]
+        x_y = (torch.square(x_in_l[..., 0])+torch.square(x_in_l[..., 1])).to(torch.float32)[..., None]
+        x_y = torch.sqrt(x_y)
+
+        x_y1 = torch.cos(x_y)
+        x_y2 = torch.cos(2*x_y)
+        x_y3 = torch.cos(4*x_y)
+        x_y4 = torch.cos(8*x_y)
+        x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
+        h = self.trunk(x_y)
+        i_mono = self.intensity_head(h).squeeze(-1)
+        return i_falloff * i_mono
+
+    def set_chroma_clamp(self, enabled: bool, value: float)->None:
+        self.chroma_clamp_enabled = enabled
+        self.chroma_clamp = value
+
+    def set_chroma_finetune(self, enabled: bool)->None:
+        for param in self.trunk.parameters():
+            param.requires_grad = not enabled
+        for param in self.intensity_head.parameters():
+            param.requires_grad = not enabled
+        for param in self.chroma_head.parameters():
+            param.requires_grad = enabled
 
 
 # Experimental

@@ -65,3 +65,25 @@ class ShadingModel(nn.Module):
         incident_light = self.light(pts_in_cam) # convert to camera coordinate first
         reflected_light = self.albedo*reflectance*(incident_light+self.ambient_light)
         return torch.clamp(reflected_light, 0.0, 255.0)
+
+    def forward_mono(self, pts: Tensor, rvec_w2c: Tensor, t_w2c: Tensor)-> Tensor:
+        R_w2c = SO3.exp(rvec_w2c)
+        R_c2w = R_w2c.inv()
+        t_c2w = -R_c2w.act(t_w2c)
+
+        p_l_in_w = R_c2w.act(self.light.t_l2c())+t_c2w
+        light_dir = p_l_in_w-pts
+        view_dir = t_c2w-pts
+
+        reflectance = self.brdf(view_dir, self.normal[None, None], light_dir)
+
+        pts_in_cam = R_w2c.act(pts)+t_w2c
+
+        if hasattr(self.light, "mono_intensity"):
+            incident_light = self.light.mono_intensity(pts_in_cam)
+        else:
+            incident_light = self.light(pts_in_cam)
+            if incident_light.ndim == 3:
+                incident_light = incident_light.mean(dim=-1)
+        reflected_light = self.albedo*reflectance*(incident_light+self.ambient_light)
+        return torch.clamp(reflected_light, 0.0, 255.0)

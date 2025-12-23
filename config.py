@@ -91,6 +91,9 @@ class GUIConfig():
     light_color_max: float = 10.0
     light_color_default: float = 1.0
     light_color_decimal: int = 2
+    consistency_weight_default: float = 0.1
+    chroma_reg_weight_default: float = 1e-3
+    chroma_clamp_default: float = 0.15
 
 
 
