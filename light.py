@@ -93,6 +93,8 @@ class LightBaseLie(nn.Module):
 
     def apply_color(self, intensity: Tensor)->Tensor:
         if self.channels == 1:
+            if intensity.ndim == 2:
+                intensity = intensity[..., None]
             return intensity * self.light_color
         if intensity.ndim == 3:
             if intensity.shape[1] == self.channels and intensity.shape[-1] != self.channels:
@@ -202,10 +204,14 @@ class LightMLP1D(LightMLPBase):
     def forward(self, pts: Tensor)-> Tensor:
         x_in_l = self.c2l(pts)+self.t_c2l()
         i_falloff = self.lorenzian(x_in_l).to(torch.float32)
-        i_mlp = self.mlp_process(x_in_l).squeeze(-1)
+        i_mlp = self.mlp_process(x_in_l)
         if self.channels == 1:
+            i_mlp = i_mlp.squeeze(-1)
             return i_falloff*i_mlp
-        return self.apply_color(i_falloff*i_mlp)
+        if i_mlp.ndim == 3 and i_mlp.shape[1] == 3 and i_mlp.shape[-1] != 3:
+            i_mlp = i_mlp.permute(0, 2, 1)
+        i_rgb = i_falloff[..., None] * i_mlp
+        return self.apply_color(i_rgb)
 
     def mono_intensity(self, pts: Tensor)->Tensor:
         x_in_l = self.c2l(pts)+self.t_c2l()
