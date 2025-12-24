@@ -444,7 +444,7 @@ class MainWindow(QMainWindow):
 
         self.mlp_hbox = QHBoxLayout()
         checkbox = WidgetFactory.get_widget("checkbox", window=self)
-        label = QLabel("MLP parameters", self)
+        label = QLabel("Trunk", self)
         self.mlp_hbox.addWidget(checkbox)
         self.mlp_hbox.addWidget(label)
         self.checkbox_label_pairs.append((checkbox, label))
@@ -631,12 +631,7 @@ class MainWindow(QMainWindow):
         self.num_epoch_layout.addWidget(spin_box)
         training_column_layout.addLayout(self.num_epoch_layout)
 
-        # Chroma finetune options
-        self.chroma_finetune_layout = QVBoxLayout()
-        self.chroma_finetune_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
-        self.chroma_finetune_layout.addWidget(QLabel("Chroma Finetune Only"))
-        self.chroma_finetune_layout.addWidget(self.chroma_finetune_checkbox)
-
+        # Chroma regularization & consistency (always visible)
         self.consistency_layout = QHBoxLayout()
         self.consistency_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
         self.consistency_layout.addWidget(self.consistency_checkbox)
@@ -646,7 +641,6 @@ class MainWindow(QMainWindow):
             value=str(self.GUI_config.consistency_weight_default),
         )
         self.consistency_layout.addWidget(self.consistency_weight_input)
-        self.chroma_finetune_layout.addLayout(self.consistency_layout)
 
         self.chroma_reg_layout = QHBoxLayout()
         self.chroma_reg_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
@@ -657,7 +651,6 @@ class MainWindow(QMainWindow):
             value=str(self.GUI_config.chroma_reg_weight_default),
         )
         self.chroma_reg_layout.addWidget(self.chroma_reg_weight_input)
-        self.chroma_finetune_layout.addLayout(self.chroma_reg_layout)
 
         self.chroma_clamp_layout = QHBoxLayout()
         self.chroma_clamp_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
@@ -668,9 +661,10 @@ class MainWindow(QMainWindow):
             value=str(self.GUI_config.chroma_clamp_default),
         )
         self.chroma_clamp_layout.addWidget(self.chroma_clamp_value_input)
-        self.chroma_finetune_layout.addLayout(self.chroma_clamp_layout)
 
-        training_column_layout.addLayout(self.chroma_finetune_layout)
+        training_column_layout.addLayout(self.consistency_layout)
+        training_column_layout.addLayout(self.chroma_reg_layout)
+        training_column_layout.addLayout(self.chroma_clamp_layout)
         training_layout.addLayout(training_column_layout)
         training_frame.setLayout(training_layout)
         self.param_layout.addWidget(training_frame)
@@ -926,27 +920,20 @@ class MainWindow(QMainWindow):
             self.hide_sigma_x()
             self.hide_sigma_y()
             self.hide_MLP_parameters()
-            self.hide_chroma_finetune()
         elif self.get_light_source() == "1D MLP" or self.get_light_source() == "2D MLP":
             self.hide_sigma_x()
             self.hide_sigma_y()
             self.show_MLP_parameters()
-            if self.get_color_mode() == "RGB" and self.get_light_source() == "1D MLP":
-                self.show_chroma_finetune()
-            else:
-                self.hide_chroma_finetune()
         elif self.get_light_source() == "Gaussian 1D":
             self.sigma_x_label.setText("\u03C3")
             self.show_sigma_x()
             self.hide_sigma_y()
             self.hide_MLP_parameters()
-            self.hide_chroma_finetune()
         elif self.get_light_source() == "Gaussian 2D":
             self.sigma_x_label.setText("\u03C3_x")
             self.show_sigma_x()
             self.show_sigma_y()
             self.hide_MLP_parameters()
-            self.hide_chroma_finetune()
 
     def show_light_color(self):
         for i in range(self.light_color_layout.count()):
@@ -975,30 +962,10 @@ class MainWindow(QMainWindow):
                         widget.hide()
 
     def show_chroma_finetune(self):
-        for i in range(self.chroma_finetune_layout.count()):
-            item = self.chroma_finetune_layout.itemAt(i)
-            if item is None:
-                continue
-            if item.widget():
-                item.widget().show()
-            elif item.layout():
-                for j in range(item.layout().count()):
-                    widget = item.layout().itemAt(j).widget()
-                    if widget:
-                        widget.show()
+        pass
 
     def hide_chroma_finetune(self):
-        for i in range(self.chroma_finetune_layout.count()):
-            item = self.chroma_finetune_layout.itemAt(i)
-            if item is None:
-                continue
-            if item.widget():
-                item.widget().hide()
-            elif item.layout():
-                for j in range(item.layout().count()):
-                    widget = item.layout().itemAt(j).widget()
-                    if widget:
-                        widget.hide()
+        pass
 
     def check_data_comboBox(self):
         if self.get_cur_dataset() == "Training set":
@@ -1015,11 +982,9 @@ class MainWindow(QMainWindow):
         self.set_shading_model()
         if self.get_color_mode() == "RGB":
             self.show_light_color()
-            self.show_chroma_finetune()
         else:
             self.hide_light_color()
-            self.hide_chroma_finetune()
-            self.chroma_finetune_checkbox.setChecked(False)
+            self.chroma_hbox.itemAt(0).widget().setChecked(False)
         self.check_light_comboBox()
         self.onclick_update()
 
@@ -1141,11 +1106,7 @@ class MainWindow(QMainWindow):
         return [self.GUI_config.light_color_default]
 
     def get_chroma_finetune(self) -> bool:
-        return (
-            self.get_color_mode() == "RGB"
-            and self.get_light_source() == "1D MLP"
-            and self.chroma_finetune_checkbox.isChecked()
-        )
+        return False
 
     def get_consistency_weight(self) -> float:
         if not self.consistency_checkbox.isChecked():
@@ -1217,7 +1178,7 @@ class MainWindow(QMainWindow):
             "Rotation": float(self.r_lr_input.text()),
             "Translation": float(self.t_lr_input.text()),
             "\u03C3_x": float(self.light_lr_input.text()),
-            "MLP parameters": float(self.light_lr_input.text()),
+            "Trunk": float(self.light_lr_input.text()),
             "Light Color": float(self.light_lr_input.text()),
             "Chroma Head": float(self.light_lr_input.text())
         }
@@ -1228,8 +1189,6 @@ class MainWindow(QMainWindow):
         self.disable_start_button()
         self.disable_update_button()
         train_params = self.check_selected_parameters()
-        if self.get_chroma_finetune():
-            train_params = ["Chroma Head"]
         chroma_clamp_enabled, chroma_clamp_value = self.get_chroma_clamp()
         self.training_thread = TrainingThread(
             self.shading_model,
