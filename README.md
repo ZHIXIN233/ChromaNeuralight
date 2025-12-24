@@ -42,6 +42,15 @@ python3 gui.py
 &emsp; 5. Click "START" to start finetuning the model.\
 &emsp; 6. Click "SAVE" to save your finetuned model.\
 &emsp; 7. For more instructions see the following illustration:
+
+### RGB mode quick tips
+- **Color Mode dropdown**: switch to **RGB** to enable 3-channel calibration (default is Grayscale).
+- **Trunk / Chroma Head checkboxes**:  
+  - *Trunk*: trains the shared trunk + intensity head (same as the old “MLP parameters”).  
+  - *Chroma Head*: trains the chroma head `g(r)` for spatially varying color.
+- **Light Color controls**: global per-channel tint; keep at `1.0` for neutral color while training chroma.
+- **Consistency / Chroma Reg / Chroma Clamp**: optional regularizers for low-data RGB fine-tuning.
+- **Saving/Loading**: in RGB mode, checkpoints save to `model_parameters_RGB.pth`; loading in RGB will try that first, then fall back to `model_parameters.pth`.
 <p align="center">
   <a href="">
     <img src="nelis_instruction.png" alt="Logo" width="100%">
