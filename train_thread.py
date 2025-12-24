@@ -17,7 +17,20 @@ class TrainingThread(QThread):
     update_progress_bar = Signal(int)
     training_stopped = Signal()
 
-    def __init__(self, shading_model: ShadingModel, training_dataloader, render, train_params, num_epochs, lr):
+    def __init__(
+        self,
+        shading_model: ShadingModel,
+        training_dataloader,
+        render,
+        train_params,
+        num_epochs,
+        lr,
+        chroma_finetune: bool = False,
+        consistency_weight: float = 0.0,
+        chroma_reg_weight: float = 0.0,
+        chroma_clamp_enabled: bool = False,
+        chroma_clamp_value: float = 0.15,
+    ):
         super().__init__()
         self.training_config = TrainingConfig()
         self.GUI_config = GUIConfig()
@@ -28,6 +41,11 @@ class TrainingThread(QThread):
         self.train_params = train_params
         self.num_epochs = num_epochs
         self.lr = lr
+        self.chroma_finetune = chroma_finetune
+        self.consistency_weight = consistency_weight
+        self.chroma_reg_weight = chroma_reg_weight
+        self.chroma_clamp_enabled = chroma_clamp_enabled
+        self.chroma_clamp_value = chroma_clamp_value
 
     def run(self):
         logging.basicConfig(filename='train.log', level=logging.INFO, filemode='w', format='%(name)s - %(levelname)s - %(message)s')
@@ -75,8 +93,21 @@ class TrainingThread(QThread):
                 return [{'params': [self.shading_model.light._t_vec], 'lr': self.lr['Translation'], "name": "t_vec"}]
             case "\u03C3_x":
                 return [{'params': [self.shading_model.light.sigma], 'lr': self.lr['\u03C3_x'], 'name': 'sigma'}]
-            case "MLP parameters":
-                return [{'params': self.shading_model.light.mlp.parameters(), 'lr': self.lr['MLP parameters'], 'name': 'mlp0'}]
+            case "Trunk":
+                if hasattr(self.shading_model.light, 'trunk') and hasattr(self.shading_model.light, 'intensity_head'):
+                    return [
+                        {'params': self.shading_model.light.trunk.parameters(), 'lr': self.lr['Trunk'], 'name': 'mlp_trunk'},
+                        {'params': self.shading_model.light.intensity_head.parameters(), 'lr': self.lr['Trunk'], 'name': 'mlp_intensity'},
+                    ]
+                if hasattr(self.shading_model.light, 'mlp'):
+                    return [{'params': self.shading_model.light.mlp.parameters(), 'lr': self.lr['Trunk'], 'name': 'mlp0'}]
+                return []
+            case "Light Color":
+                return [{'params': [self.shading_model.light.light_color_log], 'lr': self.lr['Light Color'], 'name': 'light_color'}]
+            case "Chroma Head":
+                if hasattr(self.shading_model.light, 'chroma_head'):
+                    return [{'params': self.shading_model.light.chroma_head.parameters(), 'lr': self.lr['Chroma Head'], 'name': 'chroma_head'}]
+                return []
             case _:
                 return []
 
@@ -86,8 +117,22 @@ class TrainingThread(QThread):
 
         loss_fn = nn.L1Loss()
         l = []
+        if hasattr(self.shading_model.light, "set_chroma_clamp"):
+            self.shading_model.light.set_chroma_clamp(self.chroma_clamp_enabled, self.chroma_clamp_value)
         for train_param in self.train_params:
             l += self.get_learning_param(train_param)
+        if (
+            "Chroma Head" in self.train_params
+            and hasattr(self.shading_model.light, "chroma_head")
+            and not any(p is self.shading_model.light.chroma_head for g in l for p in g.get("params", []))
+        ):
+            l.append(
+                {
+                    "params": self.shading_model.light.chroma_head.parameters(),
+                    "lr": self.lr["Chroma Head"],
+                    "name": "chroma_head",
+                }
+            )
         optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
 
         self.shading_model = self.shading_model.to(self.training_config.device)
@@ -99,6 +144,15 @@ class TrainingThread(QThread):
             for itr, (pts, intensities, rvec_w2c, tvec_w2c, _, _) in enumerate(self.training_dataloader):
                 rendered_intensities = self.shading_model(pts, rvec_w2c, tvec_w2c)
                 loss = loss_fn(rendered_intensities, intensities)
+                if self.consistency_weight > 0.0 and hasattr(self.shading_model, "forward_mono"):
+                    mono_pred = self.shading_model.forward_mono(pts, rvec_w2c, tvec_w2c)
+                    gray_pred = rendered_intensities
+                    if rendered_intensities.ndim == 3:
+                        gray_pred = rendered_intensities.mean(dim=-1)
+                    loss = loss + self.consistency_weight * loss_fn(gray_pred, mono_pred)
+                if self.chroma_reg_weight > 0.0 and hasattr(self.shading_model.light, "last_delta"):
+                    if self.shading_model.light.last_delta is not None:
+                        loss = loss + self.chroma_reg_weight * torch.mean(self.shading_model.light.last_delta**2)
                 loss.backward()
             optimizer.step()
             optimizer.zero_grad()

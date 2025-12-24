@@ -39,12 +39,14 @@ class MainWindow(QMainWindow):
             brdf=self.training_config.brdf,
             light=self.training_config.light,
             device=self.training_config.device,
+            color_mode=self.training_config.color_mode,
         )
         self.dataset = CaliDataset(
             image_path=self.training_config.image_path,
             device=self.training_config.device,
             undistort_imgs=self.training_config.undistort_image,
-            camera_name=self.training_config.camera_name
+            camera_name=self.training_config.camera_name,
+            color_mode=self.training_config.color_mode,
         )
 
         test_size = int(len(self.dataset) / self.training_config.split)
@@ -442,12 +444,51 @@ class MainWindow(QMainWindow):
 
         self.mlp_hbox = QHBoxLayout()
         checkbox = WidgetFactory.get_widget("checkbox", window=self)
-        label = QLabel("MLP parameters", self)
+        label = QLabel("Trunk", self)
         self.mlp_hbox.addWidget(checkbox)
         self.mlp_hbox.addWidget(label)
         self.checkbox_label_pairs.append((checkbox, label))
         self.mlp_hbox.addSpacing(25)
         dropdownlist_layout.addLayout(self.mlp_hbox)
+
+        self.chroma_hbox = QHBoxLayout()
+        checkbox = WidgetFactory.get_widget("checkbox", window=self)
+        label = QLabel("Chroma Head", self)
+        self.chroma_hbox.addWidget(checkbox)
+        self.chroma_hbox.addWidget(label)
+        self.checkbox_label_pairs.append((checkbox, label))
+        self.chroma_hbox.addSpacing(25)
+        dropdownlist_layout.addLayout(self.chroma_hbox)
+
+        # Light color parameters
+        self.light_color_layout = QVBoxLayout()
+        hbox = QHBoxLayout()
+        checkbox = WidgetFactory.get_widget("checkbox", window=self)
+        label = QLabel("Light Color", self)
+        hbox.addWidget(checkbox)
+        hbox.addWidget(label)
+        self.light_color_layout.addLayout(hbox)
+        self.checkbox_label_pairs.append((checkbox, label))
+        self.light_color_spin_boxes = []
+        for channel in ["R", "G", "B"]:
+            sub_layout = QHBoxLayout()
+            label = QLabel(channel)
+            sub_layout.addWidget(label)
+            spin_box = WidgetFactory.get_widget(
+                "double_spin_box",
+                window=self,
+                name=f"light_color_spin_box_{channel}",
+                step=self.GUI_config.light_color_step,
+                min=self.GUI_config.light_color_min,
+                max=self.GUI_config.light_color_max,
+                value=self.GUI_config.light_color_default,
+                decimals=self.GUI_config.light_color_decimal,
+            )
+            sub_layout.addWidget(spin_box, alignment=Qt.AlignRight)
+            sub_layout.addSpacing(25)
+            self.light_color_spin_boxes.append(spin_box)
+            self.light_color_layout.addLayout(sub_layout)
+        dropdownlist_layout.addLayout(self.light_color_layout)
 
         # Light learning rate
         lr_layout = QHBoxLayout()
@@ -489,6 +530,21 @@ class MainWindow(QMainWindow):
         self.data_layout.addWidget(self.data_comboBox)
         self.data_layout.addStretch()
         img_column_layout.addLayout(self.data_layout)
+
+        # Color mode
+        self.color_layout = QVBoxLayout()
+        label = QLabel("Color Mode")
+        self.color_layout.addWidget(label)
+        self.color_comboBox = WidgetFactory.get_widget(
+            "combo_box",
+            window=self,
+            items=["Grayscale", "RGB"],
+            current_text=self.training_config.color_mode,
+            onchange=self.check_color_mode_comboBox,
+        )
+        self.color_layout.addWidget(self.color_comboBox)
+        self.color_layout.addStretch()
+        img_column_layout.addLayout(self.color_layout)
 
         # Pagination
         self.page_layout = QVBoxLayout()
@@ -574,6 +630,41 @@ class MainWindow(QMainWindow):
         )
         self.num_epoch_layout.addWidget(spin_box)
         training_column_layout.addLayout(self.num_epoch_layout)
+
+        # Chroma regularization & consistency (always visible)
+        self.consistency_layout = QHBoxLayout()
+        self.consistency_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.consistency_layout.addWidget(self.consistency_checkbox)
+        self.consistency_layout.addWidget(QLabel("Consistency Weight"))
+        self.consistency_weight_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.consistency_weight_default),
+        )
+        self.consistency_layout.addWidget(self.consistency_weight_input)
+
+        self.chroma_reg_layout = QHBoxLayout()
+        self.chroma_reg_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.chroma_reg_layout.addWidget(self.chroma_reg_checkbox)
+        self.chroma_reg_layout.addWidget(QLabel("Chroma Reg Weight"))
+        self.chroma_reg_weight_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.chroma_reg_weight_default),
+        )
+        self.chroma_reg_layout.addWidget(self.chroma_reg_weight_input)
+
+        self.chroma_clamp_layout = QHBoxLayout()
+        self.chroma_clamp_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.chroma_clamp_layout.addWidget(self.chroma_clamp_checkbox)
+        self.chroma_clamp_layout.addWidget(QLabel("Chroma Clamp"))
+        self.chroma_clamp_value_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.chroma_clamp_default),
+        )
+        self.chroma_clamp_layout.addWidget(self.chroma_clamp_value_input)
+
+        training_column_layout.addLayout(self.consistency_layout)
+        training_column_layout.addLayout(self.chroma_reg_layout)
+        training_column_layout.addLayout(self.chroma_clamp_layout)
         training_layout.addLayout(training_column_layout)
         training_frame.setLayout(training_layout)
         self.param_layout.addWidget(training_frame)
@@ -660,6 +751,18 @@ class MainWindow(QMainWindow):
         save_img_button_layout.addWidget(self.save_img_button)
         cali_layout.addLayout(save_img_button_layout)
 
+        # Debug info button
+        self.debug_button = WidgetFactory.get_widget(
+            "button",
+            name="DEBUG",
+            base_color="#d9a441",
+            onclick=self.onclick_debug,
+        )
+        debug_button_layout = QVBoxLayout()
+        debug_button_layout.addStretch()
+        debug_button_layout.addWidget(self.debug_button)
+        cali_layout.addLayout(debug_button_layout)
+
         self.param_layout.addLayout(cali_layout)
 
         # Add the whole parameters setup panel
@@ -668,19 +771,64 @@ class MainWindow(QMainWindow):
 
     def save_model_param(self)->None:
         print("Saving model parameters...")
+        filename = "model_parameters_RGB.pth" if self.get_color_mode() == "RGB" else "model_parameters.pth"
         save_dict = {
             'model_state_dict': self.shading_model.state_dict(),
             'so3': self.shading_model.light._r_l2c_SO3.log()}
-        res = torch.save(save_dict, 'model_parameters.pth')
-        print("Parameters saved!")
+        torch.save(save_dict, filename)
+        print(f"Parameters saved to {filename}!")
 
     def load_model_param(self)->None:
         print("Loading model parameters...")
         self.onclick_update()
-        dict = torch.load('model_parameters.pth')
-        self.shading_model.load_state_dict(dict['model_state_dict'])
+        filename_candidates = []
+        if self.get_color_mode() == "RGB":
+            filename_candidates.append("model_parameters_RGB.pth")
+        filename_candidates.append("model_parameters.pth")
+
+        state_dict_loaded = None
+        filename_used = None
+        for filename in filename_candidates:
+            if os.path.exists(filename):
+                state_dict_loaded = torch.load(filename)
+                filename_used = filename
+                break
+
+        if state_dict_loaded is None:
+            print("No checkpoint found. Expected one of:", filename_candidates)
+            return
+
+        print(f"Loaded checkpoint from {filename_used}")
+        dict = state_dict_loaded
+        model_state_dict = dict['model_state_dict']
+        if any(key.startswith("light.mlp.") for key in model_state_dict.keys()):
+            remapped_state_dict = {}
+            for key, value in model_state_dict.items():
+                if key.startswith("light.mlp.0."):
+                    remapped_state_dict[key.replace("light.mlp.0.", "light.trunk.0.")] = value
+                elif key.startswith("light.mlp.2."):
+                    remapped_state_dict[key.replace("light.mlp.2.", "light.trunk.2.")] = value
+                elif key.startswith("light.mlp.4."):
+                    remapped_state_dict[key.replace("light.mlp.4.", "light.intensity_head.0.")] = value
+                else:
+                    remapped_state_dict[key] = value
+            model_state_dict = remapped_state_dict
+        current_state_dict = self.shading_model.state_dict()
+        removed_keys = []
+        for key, value in list(model_state_dict.items()):
+            if key in current_state_dict and current_state_dict[key].shape != value.shape:
+                removed_keys.append(key)
+                model_state_dict.pop(key)
+        if removed_keys:
+            print("Removed mismatched keys:", removed_keys)
+        load_result = self.shading_model.load_state_dict(model_state_dict, strict=False)
+        if load_result.missing_keys or load_result.unexpected_keys:
+            print("Model parameter mismatch detected. Missing keys:", load_result.missing_keys)
+            print("Model parameter mismatch detected. Unexpected keys:", load_result.unexpected_keys)
         r_vec = dict['so3'].squeeze()
         self.shading_model.light.set_r_vec(tuple([r_vec[0], r_vec[1], r_vec[2]]))
+        if "light.light_color_log" in load_result.missing_keys:
+            self.shading_model.light.set_light_color(self.get_light_color())
         if hasattr(self.shading_model.light, 'sigma'):
             if self.shading_model.light.sigma.ndim == 0:
                 self.update_shading_model_param(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.sigma, 0])
@@ -700,6 +848,31 @@ class MainWindow(QMainWindow):
         for i, img in enumerate(imgs_rendered):
             cv.imwrite(f'result/{TrainingConfig.image_path.split("/")[-1]}_rendered_img_{i}.png', img)
         print("Images saved!")
+
+    def onclick_debug(self):
+        print("=== Debug Info ===")
+        print("Color mode:", self.get_color_mode())
+        print("Light model:", self.get_light_source())
+        print("Light channels:", getattr(self.shading_model.light, "channels", "N/A"))
+        print("Light color:", self.shading_model.light.light_color.detach().cpu().numpy())
+        for pts, intensities, rvec_w2c, tvec_w2c, img, mask in self.current_dataloader:
+            with torch.no_grad():
+                rendered = self.shading_model(pts, rvec_w2c, tvec_w2c)
+                print("pts shape:", tuple(pts.shape))
+                print("intensities shape:", tuple(intensities.shape))
+                print("rendered shape:", tuple(rendered.shape))
+                print("rendered stats: min", float(rendered.min()), "max", float(rendered.max()), "mean", float(rendered.mean()))
+                if img.ndim == 4:
+                    img_stats = img.to(torch.float32)
+                    print("img stats: min", float(img_stats.min()), "max", float(img_stats.max()), "mean", float(img_stats.mean()))
+                if hasattr(self.shading_model, "forward_mono"):
+                    mono = self.shading_model.forward_mono(pts, rvec_w2c, tvec_w2c)
+                    print("mono stats: min", float(mono.min()), "max", float(mono.max()), "mean", float(mono.mean()))
+                if hasattr(self.shading_model.light, "last_delta") and self.shading_model.light.last_delta is not None:
+                    delta = self.shading_model.light.last_delta
+                    print("chroma delta stats: min", float(delta.min()), "max", float(delta.max()), "mean", float(delta.mean()))
+            break
+        print("=== Debug Info End ===")
 
     def check_selected_parameters(self):
         checked_parameters = []
@@ -729,10 +902,18 @@ class MainWindow(QMainWindow):
     def show_MLP_parameters(self):
         self.mlp_hbox.itemAt(0).widget().show()
         self.mlp_hbox.itemAt(1).widget().show()
+        if self.get_color_mode() == "RGB":
+            self.chroma_hbox.itemAt(0).widget().show()
+            self.chroma_hbox.itemAt(1).widget().show()
+        else:
+            self.chroma_hbox.itemAt(0).widget().hide()
+            self.chroma_hbox.itemAt(1).widget().hide()
 
     def hide_MLP_parameters(self):
         self.mlp_hbox.itemAt(0).widget().hide()
         self.mlp_hbox.itemAt(1).widget().hide()
+        self.chroma_hbox.itemAt(0).widget().hide()
+        self.chroma_hbox.itemAt(1).widget().hide()
 
     def check_light_comboBox(self):
         if self.get_light_source() == "Point Light Source":
@@ -754,6 +935,38 @@ class MainWindow(QMainWindow):
             self.show_sigma_y()
             self.hide_MLP_parameters()
 
+    def show_light_color(self):
+        for i in range(self.light_color_layout.count()):
+            item = self.light_color_layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget():
+                item.widget().show()
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.show()
+
+    def hide_light_color(self):
+        for i in range(self.light_color_layout.count()):
+            item = self.light_color_layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget():
+                item.widget().hide()
+            elif item.layout():
+                for j in range(item.layout().count()):
+                    widget = item.layout().itemAt(j).widget()
+                    if widget:
+                        widget.hide()
+
+    def show_chroma_finetune(self):
+        pass
+
+    def hide_chroma_finetune(self):
+        pass
+
     def check_data_comboBox(self):
         if self.get_cur_dataset() == "Training set":
             self.current_dataset = self.training_dataset
@@ -764,11 +977,51 @@ class MainWindow(QMainWindow):
         self.update_page_label(self.GUI_config.page_default)
         self.onclick_update()
 
+    def check_color_mode_comboBox(self):
+        self.reload_dataset()
+        self.set_shading_model()
+        if self.get_color_mode() == "RGB":
+            self.show_light_color()
+        else:
+            self.hide_light_color()
+            self.chroma_hbox.itemAt(0).widget().setChecked(False)
+        self.check_light_comboBox()
+        self.onclick_update()
+
+    def reload_dataset(self):
+        self.dataset = CaliDataset(
+            image_path=self.training_config.image_path,
+            device=self.training_config.device,
+            undistort_imgs=self.training_config.undistort_image,
+            camera_name=self.training_config.camera_name,
+            color_mode=self.get_color_mode(),
+        )
+
+        test_size = int(len(self.dataset) / self.training_config.split)
+        train_size = len(self.dataset) - test_size
+
+        self.training_dataset, self.testing_dataset = random_split(self.dataset, [train_size, test_size])
+
+        self.training_dataloader = DataLoader(
+            self.training_dataset, batch_size=self.training_config.batch_size
+        )
+        self.testing_dataloader = DataLoader(
+            self.testing_dataset, batch_size=self.training_config.batch_size
+        )
+        if self.get_cur_dataset() == "Training set":
+            self.current_dataset = self.training_dataset
+            self.current_dataloader = self.training_dataloader
+        elif self.get_cur_dataset() == "Testing set":
+            self.current_dataset = self.testing_dataset
+            self.current_dataloader = self.testing_dataloader
+        self.update_page_label(self.GUI_config.page_default)
+
     def set_shading_model(self):
         self.shading_model = ShadingModel(
             brdf=self.training_config.brdf,
             light=self.get_light_source().replace(" ", ""),
             device=self.training_config.device,
+            color_mode=self.get_color_mode(),
         )
         self.shading_model.to(device=self.training_config.device)
 
@@ -795,14 +1048,18 @@ class MainWindow(QMainWindow):
 
     def set_img(self, im: np.ndarray, flag: str = "raw") -> bool:
         img = cv.pyrDown(im)
-        height, width = img.shape
-        height, width = img.shape
+        height, width = img.shape[0:2]
         zoom_ratio = self.get_zoom_ratio()
         width = int(width * zoom_ratio)
         height = int(height * zoom_ratio)
         img = cv.resize(img, (width, height))
-        bytesPerLine = width
-        qImg = QImage(img.data, width, height, bytesPerLine, QImage.Format_Grayscale8)
+        if img.ndim == 3:
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            bytesPerLine = 3 * width
+            qImg = QImage(img.data, width, height, bytesPerLine, QImage.Format_RGB888)
+        else:
+            bytesPerLine = width
+            qImg = QImage(img.data, width, height, bytesPerLine, QImage.Format_Grayscale8)
         pixmap = QPixmap.fromImage(qImg)
         if flag == "raw":
             self.image_label_raw.setPixmap(pixmap)
@@ -839,6 +1096,32 @@ class MainWindow(QMainWindow):
     
     def get_cur_dataset(self) -> string:
         return self.data_comboBox.currentText()
+
+    def get_color_mode(self) -> string:
+        return self.color_comboBox.currentText()
+
+    def get_light_color(self) -> list[float]:
+        if self.get_color_mode() == "RGB":
+            return [spin_box.value() for spin_box in self.light_color_spin_boxes]
+        return [self.GUI_config.light_color_default]
+
+    def get_chroma_finetune(self) -> bool:
+        return False
+
+    def get_consistency_weight(self) -> float:
+        if not self.consistency_checkbox.isChecked():
+            return 0.0
+        return float(self.consistency_weight_input.text())
+
+    def get_chroma_reg_weight(self) -> float:
+        if not self.chroma_reg_checkbox.isChecked():
+            return 0.0
+        return float(self.chroma_reg_weight_input.text())
+
+    def get_chroma_clamp(self) -> tuple[bool, float]:
+        if not self.chroma_clamp_checkbox.isChecked():
+            return False, float(self.GUI_config.chroma_clamp_default)
+        return True, float(self.chroma_clamp_value_input.text())
 
     def onclick_stop(self):
         if self.training_thread:
@@ -895,7 +1178,9 @@ class MainWindow(QMainWindow):
             "Rotation": float(self.r_lr_input.text()),
             "Translation": float(self.t_lr_input.text()),
             "\u03C3_x": float(self.light_lr_input.text()),
-            "MLP parameters": float(self.light_lr_input.text())
+            "Trunk": float(self.light_lr_input.text()),
+            "Light Color": float(self.light_lr_input.text()),
+            "Chroma Head": float(self.light_lr_input.text())
         }
 
     def onclick_start(self):
@@ -903,7 +1188,21 @@ class MainWindow(QMainWindow):
         self.update_progress_bar(0)
         self.disable_start_button()
         self.disable_update_button()
-        self.training_thread = TrainingThread(self.shading_model, self.training_dataloader, self.render, self.check_selected_parameters(), self.get_num_epoch(), self.get_all_lr())
+        train_params = self.check_selected_parameters()
+        chroma_clamp_enabled, chroma_clamp_value = self.get_chroma_clamp()
+        self.training_thread = TrainingThread(
+            self.shading_model,
+            self.training_dataloader,
+            self.render,
+            train_params,
+            self.get_num_epoch(),
+            self.get_all_lr(),
+            chroma_finetune=self.get_chroma_finetune(),
+            consistency_weight=self.get_consistency_weight(),
+            chroma_reg_weight=self.get_chroma_reg_weight(),
+            chroma_clamp_enabled=chroma_clamp_enabled,
+            chroma_clamp_value=chroma_clamp_value,
+        )
         self.training_thread.update_images.connect(self.update_images)
         self.training_thread.update_shading_model_param.connect(self.update_shading_model_param)
         self.training_thread.update_progress_bar.connect(self.update_progress_bar)
@@ -919,17 +1218,22 @@ class MainWindow(QMainWindow):
         self.shading_model.light.set_t_vec(t_vec)
         self.shading_model.light.set_r_vec(r_vec)
         self.shading_model.light.set_sigma(sigma) 
+        self.shading_model.light.set_light_color(self.get_light_color())
 
     def update_shading_model_param(self, albedo_value: float, gamma_value: float, tau_value: float, ambient_value: float, t_vec: torch.Tensor, r_vec: torch.Tensor, sigma: list[float]):
-        self.albedo_spin_box.setValue(albedo_value)
-        self.gamma_spin_box.setValue(gamma_value)
-        self.tau_spin_box.setValue(tau_value)
-        self.ambient_spin_box.setValue(ambient_value)
+        self.albedo_spin_box.setValue(float(albedo_value))
+        self.gamma_spin_box.setValue(float(gamma_value))
+        self.tau_spin_box.setValue(float(tau_value))
+        self.ambient_spin_box.setValue(float(ambient_value))
         for i in range(3):
             self.r_layout.itemAt(i+1).itemAt(1).widget().setValue(r_vec[0][0][i])
             self.t_layout.itemAt(i+1).itemAt(1).widget().setValue(t_vec[0][0][i])
         self.sigma_x_spin_box.setValue(sigma[0])
         self.sigma_y_spin_box.setValue(sigma[1])
+        if self.get_color_mode() == "RGB":
+            light_color = self.shading_model.light.light_color.detach().cpu().numpy()
+            for idx, spin_box in enumerate(self.light_color_spin_boxes):
+                spin_box.setValue(float(light_color[idx]))
 
     def update_error(self, imgs_raw: np.ndarray, imgs_rendered: np.ndarray):
         error = 0.
@@ -951,10 +1255,16 @@ class MainWindow(QMainWindow):
             self.current_dataloader
         ):
             rendered_intensities = self.shading_model(pts, rvec_w2c, tvec_w2c)
-            img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
-            img.view(-1)[mask.view(-1)] = rendered_intensities.to(torch.uint8)
-            img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
-            img_viz = cv.pyrDown(img_viz)
+            if img.ndim == 4:
+                img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
+                img.view(-1, 3)[mask.view(-1)] = rendered_intensities.squeeze(0).to(torch.uint8)
+                img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
+                img_viz = cv.pyrDown(img_viz)
+            else:
+                img_raw = cv.pyrDown(img.squeeze().cpu().numpy().astype(np.uint8))
+                img.view(-1)[mask.view(-1)] = rendered_intensities.squeeze(0).to(torch.uint8)
+                img_viz = img.squeeze().cpu().numpy().astype(np.uint8)
+                img_viz = cv.pyrDown(img_viz)
 
             imgs_raw.append(img_raw)
             imgs_rendered.append(img_viz)
@@ -978,14 +1288,8 @@ def main():
     default_r_vec = (gui_config.r_layout_default["x"], gui_config.r_layout_default["y"], gui_config.r_layout_default["z"])
     main_window.update_shading_model(gui_config.albedo_default, gui_config.gamma_default, gui_config.tau_default, gui_config.ambient_default, default_t_vec, default_r_vec, [gui_config.sigma_default, gui_config.sigma_default])
     
-    imgs_raw, imgs_rendered = main_window.render()
-    main_window.page_layout.itemAt(1).widget().setMaximum(len(imgs_raw))
-    main_window.set_img(imgs_raw[0], flag="raw")
-    main_window.set_img(imgs_rendered[0], flag="rendered")
-    diff = np.clip(np.round(((imgs_rendered[0].astype(np.int16) - imgs_raw[0].astype(np.int16)) + 255) * 0.5).astype(np.uint8), 0, 255)
-    main_window.update_error(imgs_raw, imgs_rendered)
-    main_window.set_img(diff, flag="diff")
     main_window.check_light_comboBox()
+    main_window.check_color_mode_comboBox()
     main_window.show()
     sys.exit(app.exec())
 
