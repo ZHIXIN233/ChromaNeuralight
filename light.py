@@ -95,10 +95,10 @@ class LightBaseLie(nn.Module):
         if self.channels == 1:
             return intensity * self.light_color
         if intensity.ndim == 3:
+            if intensity.shape[1] == self.channels and intensity.shape[-1] != self.channels:
+                intensity = intensity.permute(0, 2, 1)
             if intensity.shape[-1] == self.channels:
                 return intensity * self.light_color.view(1, 1, self.channels)
-            if intensity.shape[1] == self.channels:
-                return intensity * self.light_color.view(1, self.channels, 1)
             return intensity[..., None] * self.light_color
         return intensity[..., None] * self.light_color
     

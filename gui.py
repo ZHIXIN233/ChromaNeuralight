@@ -839,7 +839,7 @@ class MainWindow(QMainWindow):
     def onclick_debug(self):
         print("=== Debug Info ===")
         print("Color mode:", self.get_color_mode())
-        print("Light model:", self.get_light_model())
+        print("Light model:", self.get_light_source())
         print("Light channels:", getattr(self.shading_model.light, "channels", "N/A"))
         print("Light color:", self.shading_model.light.light_color.detach().cpu().numpy())
         for pts, intensities, rvec_w2c, tvec_w2c, img, mask in self.current_dataloader:
