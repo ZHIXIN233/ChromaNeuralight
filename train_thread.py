@@ -117,8 +117,6 @@ class TrainingThread(QThread):
 
         loss_fn = nn.L1Loss()
         l = []
-        if hasattr(self.shading_model.light, "set_chroma_finetune"):
-            self.shading_model.light.set_chroma_finetune(self.chroma_finetune)
         if hasattr(self.shading_model.light, "set_chroma_clamp"):
             self.shading_model.light.set_chroma_clamp(self.chroma_clamp_enabled, self.chroma_clamp_value)
         for train_param in self.train_params:
