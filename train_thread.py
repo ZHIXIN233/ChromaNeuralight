@@ -117,15 +117,27 @@ class TrainingThread(QThread):
 
         loss_fn = nn.L1Loss()
         l = []
-        for train_param in self.train_params:
-            l += self.get_learning_param(train_param)
-        optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-
-        self.shading_model = self.shading_model.to(self.training_config.device)
         if hasattr(self.shading_model.light, "set_chroma_finetune"):
             self.shading_model.light.set_chroma_finetune(self.chroma_finetune)
         if hasattr(self.shading_model.light, "set_chroma_clamp"):
             self.shading_model.light.set_chroma_clamp(self.chroma_clamp_enabled, self.chroma_clamp_value)
+        for train_param in self.train_params:
+            l += self.get_learning_param(train_param)
+        if (
+            "Chroma Head" in self.train_params
+            and hasattr(self.shading_model.light, "chroma_head")
+            and not any(p is self.shading_model.light.chroma_head for g in l for p in g.get("params", []))
+        ):
+            l.append(
+                {
+                    "params": self.shading_model.light.chroma_head.parameters(),
+                    "lr": self.lr["Chroma Head"],
+                    "name": "chroma_head",
+                }
+            )
+        optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+
+        self.shading_model = self.shading_model.to(self.training_config.device)
         for epoch in tqdm(range(num_epoch)):
             if not self._is_running:
                 self.training_stopped.emit()
