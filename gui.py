@@ -757,6 +757,18 @@ class MainWindow(QMainWindow):
         save_img_button_layout.addWidget(self.save_img_button)
         cali_layout.addLayout(save_img_button_layout)
 
+        # Debug info button
+        self.debug_button = WidgetFactory.get_widget(
+            "button",
+            name="DEBUG",
+            base_color="#d9a441",
+            onclick=self.onclick_debug,
+        )
+        debug_button_layout = QVBoxLayout()
+        debug_button_layout.addStretch()
+        debug_button_layout.addWidget(self.debug_button)
+        cali_layout.addLayout(debug_button_layout)
+
         self.param_layout.addLayout(cali_layout)
 
         # Add the whole parameters setup panel
@@ -823,6 +835,31 @@ class MainWindow(QMainWindow):
         for i, img in enumerate(imgs_rendered):
             cv.imwrite(f'result/{TrainingConfig.image_path.split("/")[-1]}_rendered_img_{i}.png', img)
         print("Images saved!")
+
+    def onclick_debug(self):
+        print("=== Debug Info ===")
+        print("Color mode:", self.get_color_mode())
+        print("Light model:", self.get_light_model())
+        print("Light channels:", getattr(self.shading_model.light, "channels", "N/A"))
+        print("Light color:", self.shading_model.light.light_color.detach().cpu().numpy())
+        for pts, intensities, rvec_w2c, tvec_w2c, img, mask in self.current_dataloader:
+            with torch.no_grad():
+                rendered = self.shading_model(pts, rvec_w2c, tvec_w2c)
+                print("pts shape:", tuple(pts.shape))
+                print("intensities shape:", tuple(intensities.shape))
+                print("rendered shape:", tuple(rendered.shape))
+                print("rendered stats: min", float(rendered.min()), "max", float(rendered.max()), "mean", float(rendered.mean()))
+                if img.ndim == 4:
+                    img_stats = img.to(torch.float32)
+                    print("img stats: min", float(img_stats.min()), "max", float(img_stats.max()), "mean", float(img_stats.mean()))
+                if hasattr(self.shading_model, "forward_mono"):
+                    mono = self.shading_model.forward_mono(pts, rvec_w2c, tvec_w2c)
+                    print("mono stats: min", float(mono.min()), "max", float(mono.max()), "mean", float(mono.mean()))
+                if hasattr(self.shading_model.light, "last_delta") and self.shading_model.light.last_delta is not None:
+                    delta = self.shading_model.light.last_delta
+                    print("chroma delta stats: min", float(delta.min()), "max", float(delta.max()), "mean", float(delta.mean()))
+            break
+        print("=== Debug Info End ===")
 
     def check_selected_parameters(self):
         checked_parameters = []
