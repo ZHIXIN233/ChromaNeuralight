@@ -777,16 +777,35 @@ class MainWindow(QMainWindow):
 
     def save_model_param(self)->None:
         print("Saving model parameters...")
+        filename = "model_parameters_RGB.pth" if self.get_color_mode() == "RGB" else "model_parameters.pth"
         save_dict = {
             'model_state_dict': self.shading_model.state_dict(),
             'so3': self.shading_model.light._r_l2c_SO3.log()}
-        res = torch.save(save_dict, 'model_parameters.pth')
-        print("Parameters saved!")
+        torch.save(save_dict, filename)
+        print(f"Parameters saved to {filename}!")
 
     def load_model_param(self)->None:
         print("Loading model parameters...")
         self.onclick_update()
-        dict = torch.load('model_parameters.pth')
+        filename_candidates = []
+        if self.get_color_mode() == "RGB":
+            filename_candidates.append("model_parameters_RGB.pth")
+        filename_candidates.append("model_parameters.pth")
+
+        state_dict_loaded = None
+        filename_used = None
+        for filename in filename_candidates:
+            if os.path.exists(filename):
+                state_dict_loaded = torch.load(filename)
+                filename_used = filename
+                break
+
+        if state_dict_loaded is None:
+            print("No checkpoint found. Expected one of:", filename_candidates)
+            return
+
+        print(f"Loaded checkpoint from {filename_used}")
+        dict = state_dict_loaded
         model_state_dict = dict['model_state_dict']
         if any(key.startswith("light.mlp.") for key in model_state_dict.keys()):
             remapped_state_dict = {}
