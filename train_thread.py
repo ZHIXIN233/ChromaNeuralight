@@ -10,6 +10,7 @@ from config import TrainingConfig
 from shading import ShadingModel
 import torch.nn as nn
 from tqdm import tqdm
+from lietorch import SO3
 
 class TrainingThread(QThread):
     update_images = Signal(object, object)
@@ -30,6 +31,9 @@ class TrainingThread(QThread):
         chroma_reg_weight: float = 0.0,
         chroma_clamp_enabled: bool = False,
         chroma_clamp_value: float = 0.15,
+        radial_decay_weight: float = 0.0,
+        radial_decay_threshold: float = 1.2,
+        monotonic_weight: float = 0.0,
     ):
         super().__init__()
         self.training_config = TrainingConfig()
@@ -46,6 +50,9 @@ class TrainingThread(QThread):
         self.chroma_reg_weight = chroma_reg_weight
         self.chroma_clamp_enabled = chroma_clamp_enabled
         self.chroma_clamp_value = chroma_clamp_value
+        self.radial_decay_weight = radial_decay_weight
+        self.radial_decay_threshold = radial_decay_threshold
+        self.monotonic_weight = monotonic_weight
 
     def run(self):
         logging.basicConfig(filename='train.log', level=logging.INFO, filemode='w', format='%(name)s - %(levelname)s - %(message)s')
@@ -144,6 +151,7 @@ class TrainingThread(QThread):
             for itr, (pts, intensities, rvec_w2c, tvec_w2c, _, _) in enumerate(self.training_dataloader):
                 rendered_intensities = self.shading_model(pts, rvec_w2c, tvec_w2c)
                 loss = loss_fn(rendered_intensities, intensities)
+                mono_pred = None
                 if self.consistency_weight > 0.0 and hasattr(self.shading_model, "forward_mono"):
                     mono_pred = self.shading_model.forward_mono(pts, rvec_w2c, tvec_w2c)
                     gray_pred = rendered_intensities
@@ -153,6 +161,33 @@ class TrainingThread(QThread):
                 if self.chroma_reg_weight > 0.0 and hasattr(self.shading_model.light, "last_delta"):
                     if self.shading_model.light.last_delta is not None:
                         loss = loss + self.chroma_reg_weight * torch.mean(self.shading_model.light.last_delta**2)
+                mono_pred = mono_pred if mono_pred is not None else rendered_intensities
+                if (self.radial_decay_weight > 0.0 or self.monotonic_weight > 0.0) and mono_pred is not None:
+                    R_w2c = SO3.exp(rvec_w2c)
+                    pts_in_cam = R_w2c.act(pts) + tvec_w2c
+                    radius = torch.sqrt(pts_in_cam[..., 0] ** 2 + pts_in_cam[..., 1] ** 2) / torch.clamp_min(
+                        pts_in_cam[..., 2].abs(), 1e-8
+                    )
+                    if self.radial_decay_weight > 0.0:
+                        far_mask = radius > self.radial_decay_threshold
+                        if far_mask.any():
+                            mono_for_decay = mono_pred
+                            if mono_for_decay.ndim == 3:
+                                mono_for_decay = mono_for_decay.mean(dim=-1)
+                            decay_loss = torch.mean(torch.abs(mono_for_decay[far_mask]))
+                            loss = loss + self.radial_decay_weight * decay_loss
+                    if self.monotonic_weight > 0.0:
+                        mono_for_mono = mono_pred
+                        if mono_for_mono.ndim == 3:
+                            mono_for_mono = mono_for_mono.mean(dim=-1)
+                        radius_flat = radius.reshape(radius.shape[0], -1)
+                        mono_flat = mono_for_mono.reshape(mono_for_mono.shape[0], -1)
+                        _, sort_idx = torch.sort(radius_flat, dim=-1)
+                        mono_sorted = torch.gather(mono_flat, dim=-1, index=sort_idx)
+                        if mono_sorted.shape[-1] > 1:
+                            diff = mono_sorted[..., :-1] - mono_sorted[..., 1:]
+                            monotonic_loss = torch.relu(diff).mean()
+                            loss = loss + self.monotonic_weight * monotonic_loss
                 loss.backward()
             optimizer.step()
             optimizer.zero_grad()

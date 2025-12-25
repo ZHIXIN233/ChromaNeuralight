@@ -94,6 +94,9 @@ class GUIConfig():
     consistency_weight_default: float = 0.1
     chroma_reg_weight_default: float = 1e-3
     chroma_clamp_default: float = 0.15
+    radial_decay_weight_default: float = 0.0
+    radial_decay_threshold_default: float = 1.2
+    monotonic_weight_default: float = 0.0
 
 
 
