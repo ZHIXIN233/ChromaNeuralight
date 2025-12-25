@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         self.shading_model.to(device=self.training_config.device)
 
         self.training_thread = None
+        self.suppress_instant_update = False
 
         # Main widget and layout
         main_widget = QWidget(self)
@@ -703,6 +704,18 @@ class MainWindow(QMainWindow):
         load_param_button_layout.addWidget(self.load_param_button)
         cali_layout.addLayout(load_param_button_layout)
 
+        instant_update_layout = QHBoxLayout()
+        self.instant_update_checkbox = WidgetFactory.get_widget(
+            "checkbox",
+            window=self,
+            checked=False,
+        )
+        instant_update_label = QLabel("Instant Update")
+        instant_update_layout.addWidget(self.instant_update_checkbox)
+        instant_update_layout.addWidget(instant_update_label)
+        instant_update_layout.addStretch()
+        cali_layout.addLayout(instant_update_layout)
+
         # Update rendered image button
         self.update_button = WidgetFactory.get_widget(
             "button",
@@ -768,6 +781,7 @@ class MainWindow(QMainWindow):
         # Add the whole parameters setup panel
         layout.addLayout(self.param_layout)
         self.setWindowTitle("CAMERA-LIGHT CALIBRATION")
+        self.register_instant_update_signals()
 
     def save_model_param(self)->None:
         print("Saving model parameters...")
@@ -1221,19 +1235,23 @@ class MainWindow(QMainWindow):
         self.shading_model.light.set_light_color(self.get_light_color())
 
     def update_shading_model_param(self, albedo_value: float, gamma_value: float, tau_value: float, ambient_value: float, t_vec: torch.Tensor, r_vec: torch.Tensor, sigma: list[float]):
-        self.albedo_spin_box.setValue(float(albedo_value))
-        self.gamma_spin_box.setValue(float(gamma_value))
-        self.tau_spin_box.setValue(float(tau_value))
-        self.ambient_spin_box.setValue(float(ambient_value))
-        for i in range(3):
-            self.r_layout.itemAt(i+1).itemAt(1).widget().setValue(r_vec[0][0][i])
-            self.t_layout.itemAt(i+1).itemAt(1).widget().setValue(t_vec[0][0][i])
-        self.sigma_x_spin_box.setValue(sigma[0])
-        self.sigma_y_spin_box.setValue(sigma[1])
-        if self.get_color_mode() == "RGB":
-            light_color = self.shading_model.light.light_color.detach().cpu().numpy()
-            for idx, spin_box in enumerate(self.light_color_spin_boxes):
-                spin_box.setValue(float(light_color[idx]))
+        self.suppress_instant_update = True
+        try:
+            self.albedo_spin_box.setValue(float(albedo_value))
+            self.gamma_spin_box.setValue(float(gamma_value))
+            self.tau_spin_box.setValue(float(tau_value))
+            self.ambient_spin_box.setValue(float(ambient_value))
+            for i in range(3):
+                self.r_layout.itemAt(i+1).itemAt(1).widget().setValue(r_vec[0][0][i])
+                self.t_layout.itemAt(i+1).itemAt(1).widget().setValue(t_vec[0][0][i])
+            self.sigma_x_spin_box.setValue(sigma[0])
+            self.sigma_y_spin_box.setValue(sigma[1])
+            if self.get_color_mode() == "RGB":
+                light_color = self.shading_model.light.light_color.detach().cpu().numpy()
+                for idx, spin_box in enumerate(self.light_color_spin_boxes):
+                    spin_box.setValue(float(light_color[idx]))
+        finally:
+            self.suppress_instant_update = False
 
     def update_error(self, imgs_raw: np.ndarray, imgs_rendered: np.ndarray):
         error = 0.
@@ -1247,6 +1265,45 @@ class MainWindow(QMainWindow):
 
     def update_status(self, status: str):
         self.status_label.setText(status)
+
+    def trigger_instant_update(self, *_args):
+        if self.suppress_instant_update:
+            return
+        if self.instant_update_checkbox.isChecked():
+            self.onclick_update()
+
+    def register_instant_update_signals(self):
+        self.instant_update_checkbox.stateChanged.connect(self.trigger_instant_update)
+        value_change_widgets = [
+            self.albedo_spin_box,
+            self.gamma_spin_box,
+            self.tau_spin_box,
+            self.ambient_spin_box,
+            self.zoom_spin_box,
+            self.page_layout.itemAt(1).widget(),
+            self.sigma_x_spin_box,
+            self.sigma_y_spin_box,
+            *self.r_l2c_spin_boxes,
+            *self.t_l2c_spin_boxes,
+            *self.light_color_spin_boxes,
+        ]
+        for widget in value_change_widgets:
+            widget.valueChanged.connect(self.trigger_instant_update)
+
+        text_change_widgets = [
+            self.albedo_lr_input,
+            self.gamma_lr_input,
+            self.tau_lr_input,
+            self.ambient_lr_input,
+            self.r_lr_input,
+            self.t_lr_input,
+            self.light_lr_input,
+            self.consistency_weight_input,
+            self.chroma_reg_weight_input,
+            self.chroma_clamp_value_input,
+        ]
+        for widget in text_change_widgets:
+            widget.textChanged.connect(self.trigger_instant_update)
 
     def render(self):
         imgs_raw = []
