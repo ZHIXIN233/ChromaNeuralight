@@ -168,6 +168,10 @@ class LightMLP1D(LightMLPBase):
             if isinstance(m, nn.Linear):
                 nn.init.constant_(m.weight, 0)
                 nn.init.constant_(m.bias, 0)
+
+        self.mu = nn.parameter.Parameter(torch.tensor(0.0))
+        self.log_sigma = nn.parameter.Parameter(torch.tensor(0.0))
+
         self.chroma_clamp_enabled = False
         self.chroma_clamp = 0.15
         self.last_delta = None
@@ -180,17 +184,23 @@ class LightMLP1D(LightMLPBase):
         '''
         x_in_l = x_in_l/x_in_l[..., 2, None]
         x_y = (torch.square(x_in_l[..., 0])+torch.square(x_in_l[..., 1])).to(torch.float32)[..., None]
-        x_y = torch.sqrt(x_y)
+        x = torch.sqrt(x_y)
 
         # Positional encoding under test
-        x_y1 = torch.cos(x_y)
-        x_y2 = torch.cos(2*x_y)
-        x_y3 = torch.cos(4*x_y)
-        x_y4 = torch.cos(8*x_y)
-        x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
+        x_y1 = torch.cos(x)
+        x_y2 = torch.cos(2*x)
+        x_y3 = torch.cos(4*x)
+        x_y4 = torch.cos(8*x)
+        x_y  = torch.concat([x, x_y1, x_y2, x_y3, x_y4], dim=-1)
 
         h = self.trunk(x_y)
+
+        sigma = torch.exp(self.log_sigma)
+        envelope = torch.exp(- (x - self.mu) ** 2 / (2 * sigma ** 2))
+
         i_mono = self.intensity_head(h)
+
+        i_mono = i_mono * envelope
         if self.channels == 1:
             return i_mono
         delta = self.chroma_head(h)
