@@ -172,8 +172,8 @@ class TrainingThread(QThread):
                     radius = torch.sqrt(pts_in_cam[..., 0] ** 2 + pts_in_cam[..., 1] ** 2) / torch.clamp_min(
                         pts_in_cam[..., 2].abs(), 1e-8
                     )
-                    max_radius = torch.amax(radius, dim=(-1, -2), keepdim=True)
-                    z_ref = torch.median(pts_in_cam[..., 2], dim=-1, keepdim=True).values
+                    max_radius = torch.amax(radius, dim=1, keepdim=True)
+                    z_ref = torch.median(pts_in_cam[..., 2], dim=1, keepdim=True).values
                     sample_steps = max(2, int(self.radial_decay_sample_steps))
                     sample_radius = torch.linspace(
                         0.0,
@@ -181,7 +181,7 @@ class TrainingThread(QThread):
                         sample_steps,
                         device=pts.device,
                         dtype=pts.dtype,
-                    )[None, None, :]
+                    )[None, :]
                     sample_radius = max_radius * (1.0 + (self.radial_decay_sample_scale - 1.0) * sample_radius)
                     theta = torch.rand_like(sample_radius) * 2 * torch.pi
                     x_cam = sample_radius * z_ref * torch.cos(theta)
