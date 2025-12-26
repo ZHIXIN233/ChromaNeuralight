@@ -679,6 +679,20 @@ class MainWindow(QMainWindow):
             value=str(self.GUI_config.radial_decay_threshold_default),
         )
         self.radial_decay_layout.addWidget(self.radial_decay_threshold_input)
+        self.radial_decay_layout.addSpacing(10)
+        self.radial_decay_layout.addWidget(QLabel("Sample Scale"))
+        self.radial_decay_scale_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.radial_decay_sample_scale_default),
+        )
+        self.radial_decay_layout.addWidget(self.radial_decay_scale_input)
+        self.radial_decay_layout.addSpacing(10)
+        self.radial_decay_layout.addWidget(QLabel("Sample Steps"))
+        self.radial_decay_steps_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.radial_decay_sample_steps_default),
+        )
+        self.radial_decay_layout.addWidget(self.radial_decay_steps_input)
 
         # Radial monotonicity regularization
         self.monotonic_layout = QHBoxLayout()
@@ -1156,8 +1170,18 @@ class MainWindow(QMainWindow):
 
     def get_radial_decay_params(self) -> tuple[float, float]:
         if not self.radial_decay_checkbox.isChecked():
-            return 0.0, float(self.GUI_config.radial_decay_threshold_default)
-        return float(self.radial_decay_weight_input.text()), float(self.radial_decay_threshold_input.text())
+            return (
+                0.0,
+                float(self.GUI_config.radial_decay_threshold_default),
+                float(self.GUI_config.radial_decay_sample_scale_default),
+                int(self.GUI_config.radial_decay_sample_steps_default),
+            )
+        return (
+            float(self.radial_decay_weight_input.text()),
+            float(self.radial_decay_threshold_input.text()),
+            float(self.radial_decay_scale_input.text()),
+            int(float(self.radial_decay_steps_input.text())),
+        )
 
     def get_monotonic_weight(self) -> float:
         if not self.monotonic_checkbox.isChecked():
@@ -1231,7 +1255,7 @@ class MainWindow(QMainWindow):
         self.disable_update_button()
         train_params = self.check_selected_parameters()
         chroma_clamp_enabled, chroma_clamp_value = self.get_chroma_clamp()
-        radial_decay_weight, radial_decay_threshold = self.get_radial_decay_params()
+        radial_decay_weight, radial_decay_threshold, radial_decay_scale, radial_decay_steps = self.get_radial_decay_params()
         self.training_thread = TrainingThread(
             self.shading_model,
             self.training_dataloader,
@@ -1246,6 +1270,8 @@ class MainWindow(QMainWindow):
             chroma_clamp_value=chroma_clamp_value,
             radial_decay_weight=radial_decay_weight,
             radial_decay_threshold=radial_decay_threshold,
+            radial_decay_sample_scale=radial_decay_scale,
+            radial_decay_sample_steps=radial_decay_steps,
             monotonic_weight=self.get_monotonic_weight(),
         )
         self.training_thread.update_images.connect(self.update_images)

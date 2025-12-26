@@ -33,6 +33,8 @@ class TrainingThread(QThread):
         chroma_clamp_value: float = 0.15,
         radial_decay_weight: float = 0.0,
         radial_decay_threshold: float = 1.2,
+        radial_decay_sample_scale: float = 2.5,
+        radial_decay_sample_steps: int = 48,
         monotonic_weight: float = 0.0,
     ):
         super().__init__()
@@ -52,6 +54,8 @@ class TrainingThread(QThread):
         self.chroma_clamp_value = chroma_clamp_value
         self.radial_decay_weight = radial_decay_weight
         self.radial_decay_threshold = radial_decay_threshold
+        self.radial_decay_sample_scale = radial_decay_sample_scale
+        self.radial_decay_sample_steps = radial_decay_sample_steps
         self.monotonic_weight = monotonic_weight
 
     def run(self):
@@ -168,13 +172,41 @@ class TrainingThread(QThread):
                     radius = torch.sqrt(pts_in_cam[..., 0] ** 2 + pts_in_cam[..., 1] ** 2) / torch.clamp_min(
                         pts_in_cam[..., 2].abs(), 1e-8
                     )
+                    max_radius = torch.amax(radius, dim=(-1, -2), keepdim=True)
+                    z_ref = torch.median(pts_in_cam[..., 2], dim=-1, keepdim=True).values
+                    sample_steps = max(2, int(self.radial_decay_sample_steps))
+                    sample_radius = torch.linspace(
+                        0.0,
+                        1.0,
+                        sample_steps,
+                        device=pts.device,
+                        dtype=pts.dtype,
+                    )[None, None, :]
+                    sample_radius = max_radius * (1.0 + (self.radial_decay_sample_scale - 1.0) * sample_radius)
+                    theta = torch.rand_like(sample_radius) * 2 * torch.pi
+                    x_cam = sample_radius * z_ref * torch.cos(theta)
+                    y_cam = sample_radius * z_ref * torch.sin(theta)
+                    z_cam = z_ref.expand_as(sample_radius)
+                    pts_cam_sample = torch.stack([x_cam, y_cam, z_cam], dim=-1)
+                    R_c2w = R_w2c.inv()
+                    t_c2w = -R_c2w.act(tvec_w2c)
+                    pts_w_sample = R_c2w.act(pts_cam_sample) + t_c2w
+                    mono_sample = self.shading_model.forward_mono(pts_w_sample, rvec_w2c, tvec_w2c)
+                    if mono_sample.ndim == 4:
+                        mono_sample = mono_sample.mean(dim=-1)
                     if self.radial_decay_weight > 0.0:
-                        far_mask = radius > self.radial_decay_threshold
+                        mono_for_decay = mono_pred
+                        if mono_for_decay.ndim == 3:
+                            mono_for_decay = mono_for_decay.mean(dim=-1)
+                        radius_flat = radius.reshape(radius.shape[0], -1)
+                        mono_flat = mono_for_decay.reshape(mono_for_decay.shape[0], -1)
+                        sample_radius_flat = sample_radius.reshape(sample_radius.shape[0], -1)
+                        mono_sample_flat = mono_sample.reshape(mono_sample.shape[0], -1)
+                        radius_all = torch.cat([radius_flat, sample_radius_flat], dim=-1)
+                        mono_all = torch.cat([mono_flat, mono_sample_flat], dim=-1)
+                        far_mask = radius_all > self.radial_decay_threshold
                         if far_mask.any():
-                            mono_for_decay = mono_pred
-                            if mono_for_decay.ndim == 3:
-                                mono_for_decay = mono_for_decay.mean(dim=-1)
-                            decay_loss = torch.mean(torch.abs(mono_for_decay[far_mask]))
+                            decay_loss = torch.mean(torch.abs(mono_all[far_mask]))
                             loss = loss + self.radial_decay_weight * decay_loss
                     if self.monotonic_weight > 0.0:
                         mono_for_mono = mono_pred
@@ -182,8 +214,12 @@ class TrainingThread(QThread):
                             mono_for_mono = mono_for_mono.mean(dim=-1)
                         radius_flat = radius.reshape(radius.shape[0], -1)
                         mono_flat = mono_for_mono.reshape(mono_for_mono.shape[0], -1)
-                        _, sort_idx = torch.sort(radius_flat, dim=-1)
-                        mono_sorted = torch.gather(mono_flat, dim=-1, index=sort_idx)
+                        sample_radius_flat = sample_radius.reshape(sample_radius.shape[0], -1)
+                        mono_sample_flat = mono_sample.reshape(mono_sample.shape[0], -1)
+                        radius_all = torch.cat([radius_flat, sample_radius_flat], dim=-1)
+                        mono_all = torch.cat([mono_flat, mono_sample_flat], dim=-1)
+                        _, sort_idx = torch.sort(radius_all, dim=-1)
+                        mono_sorted = torch.gather(mono_all, dim=-1, index=sort_idx)
                         if mono_sorted.shape[-1] > 1:
                             diff = mono_sorted[..., :-1] - mono_sorted[..., 1:]
                             monotonic_loss = torch.relu(diff).mean()
