@@ -10,6 +10,7 @@ from config import TrainingConfig
 from shading import ShadingModel
 import torch.nn as nn
 from tqdm import tqdm
+from lietorch import SO3
 
 class TrainingThread(QThread):
     update_images = Signal(object, object)
@@ -30,6 +31,8 @@ class TrainingThread(QThread):
         chroma_reg_weight: float = 0.0,
         chroma_clamp_enabled: bool = False,
         chroma_clamp_value: float = 0.15,
+        outer_prior_weight: float = 0.0,
+        outer_prior_radius: float = 0.6,
     ):
         super().__init__()
         self.training_config = TrainingConfig()
@@ -46,6 +49,8 @@ class TrainingThread(QThread):
         self.chroma_reg_weight = chroma_reg_weight
         self.chroma_clamp_enabled = chroma_clamp_enabled
         self.chroma_clamp_value = chroma_clamp_value
+        self.outer_prior_weight = outer_prior_weight
+        self.outer_prior_radius = outer_prior_radius
 
     def run(self):
         logging.basicConfig(filename='train.log', level=logging.INFO, filemode='w', format='%(name)s - %(levelname)s - %(message)s')
@@ -63,13 +68,19 @@ class TrainingThread(QThread):
             logging.info("tau: " + str(self.shading_model.light.tau))
             if hasattr(self.shading_model.light, 'sigma'):
                 logging.info("sigma: " + str(self.shading_model.light.sigma))
+            if hasattr(self.shading_model.light, 'mu'):
+                logging.info("mu: " + str(self.shading_model.light.mu))
+            if hasattr(self.shading_model.light, 'log_sigma'):
+                logging.info("log_sigma: " + str(self.shading_model.light.log_sigma))
             logging.info("_t_vec: " + str(self.shading_model.light._t_vec))
             logging.info("_r_l2c_SO3: " + str(self.shading_model.light._r_l2c_SO3.log()))
             imgs_raw, imgs_rendered = self.render()
             if self._is_running:
                 self.update_images.emit(imgs_raw, imgs_rendered)
                 if hasattr(self.shading_model.light, 'sigma'):
-                    if self.shading_model.light.sigma.ndim == 0:
+                    if hasattr(self.shading_model.light, "mu") and hasattr(self.shading_model.light, "log_sigma"):
+                        self.update_shading_model_param.emit(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.mu, self.shading_model.light.log_sigma])
+                    elif self.shading_model.light.sigma.ndim == 0:
                         self.update_shading_model_param.emit(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.sigma, 0])
                     else:
                         self.update_shading_model_param.emit(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.sigma[0], self.shading_model.light.sigma[1]])
@@ -85,6 +96,14 @@ class TrainingThread(QThread):
                 return [{'params': [self.shading_model.light.gamma_log], 'lr': self.lr['gamma'], "name": "gamma"}]
             case "tau":
                 return [{'params': [self.shading_model.light.tau_log], 'lr': self.lr['tau'], "name": "tau"}]
+            case "mu":
+                if hasattr(self.shading_model.light, "mu"):
+                    return [{'params': [self.shading_model.light.mu], 'lr': self.lr['mu'], "name": "mu"}]
+                return []
+            case "log_sigma":
+                if hasattr(self.shading_model.light, "log_sigma"):
+                    return [{'params': [self.shading_model.light.log_sigma], 'lr': self.lr['log_sigma'], "name": "log_sigma"}]
+                return []
             case "Ambient":
                 return [{'params': [self.shading_model.ambient_light_log], 'lr': self.lr['Ambient'], "name": "ambient"}]
             case "Rotation":
@@ -153,6 +172,16 @@ class TrainingThread(QThread):
                 if self.chroma_reg_weight > 0.0 and hasattr(self.shading_model.light, "last_delta"):
                     if self.shading_model.light.last_delta is not None:
                         loss = loss + self.chroma_reg_weight * torch.mean(self.shading_model.light.last_delta**2)
+                if self.outer_prior_weight > 0.0:
+                    R_w2c = SO3.exp(rvec_w2c)
+                    pts_in_cam = R_w2c.act(pts)+tvec_w2c
+                    xy_radius = torch.sqrt(torch.square(pts_in_cam[..., 0]/(pts_in_cam[..., 2]+1e-6)) + torch.square(pts_in_cam[..., 1]/(pts_in_cam[..., 2]+1e-6)))
+                    outer_mask = xy_radius > self.outer_prior_radius
+                    if outer_mask.any():
+                        outer_pred = rendered_intensities
+                        if outer_pred.ndim == 3:
+                            outer_pred = outer_pred.mean(dim=-1)
+                        loss = loss + self.outer_prior_weight * torch.mean(torch.square(outer_pred[outer_mask]))
                 loss.backward()
             optimizer.step()
             optimizer.zero_grad()

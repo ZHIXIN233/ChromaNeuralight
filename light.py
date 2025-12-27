@@ -146,6 +146,8 @@ class LightMLP1D(LightMLPBase):
     # Not using due to nosies and peaks in MLP especially at transit of edge.
     def __init__(self, channels: int = 1) -> None:
         super().__init__(channels=channels)
+        self.mu = nn.Parameter(torch.tensor(0.0, device="cuda:0", dtype=torch.float32), requires_grad=True)
+        self.log_sigma = nn.Parameter(torch.tensor(-1.0, device="cuda:0", dtype=torch.float32), requires_grad=True)
         self.trunk = nn.Sequential(
             nn.Linear(5, 20),
             nn.Softplus(),
@@ -189,7 +191,8 @@ class LightMLP1D(LightMLPBase):
         x_y4 = torch.cos(8*x_y)
         x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
 
-        h = self.trunk(x_y)
+        envelope = torch.exp(-0.5 * torch.square((x_y[..., 0] - self.mu) / (self.sigma + 1e-6)))[..., None]
+        h = self.trunk(x_y) * envelope
         i_mono = self.intensity_head(h)
         if self.channels == 1:
             return i_mono
@@ -200,6 +203,20 @@ class LightMLP1D(LightMLPBase):
         self.last_delta = delta
         gain = torch.exp(delta)
         return i_mono * gain
+
+    @property
+    def sigma(self)->Tensor:
+        return torch.exp(self.log_sigma)
+
+    def set_mu(self, mu: float, require_grad: bool = True)->None:
+        self.mu = nn.Parameter(torch.tensor(mu, device=self.mu.device, dtype=torch.float32), requires_grad=require_grad)
+
+    def set_log_sigma(self, log_sigma: float, require_grad: bool = True)->None:
+        self.log_sigma = nn.Parameter(torch.tensor(log_sigma, device=self.log_sigma.device, dtype=torch.float32), requires_grad=require_grad)
+
+    def set_sigma(self, sigma: list[float], require_grad: bool = True)->None:
+        self.set_mu(sigma[0], require_grad=require_grad)
+        self.set_log_sigma(sigma[1], require_grad=require_grad)
 
     def forward(self, pts: Tensor)-> Tensor:
         x_in_l = self.c2l(pts)+self.t_c2l()
@@ -225,7 +242,8 @@ class LightMLP1D(LightMLPBase):
         x_y3 = torch.cos(4*x_y)
         x_y4 = torch.cos(8*x_y)
         x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
-        h = self.trunk(x_y)
+        envelope = torch.exp(-0.5 * torch.square((x_y[..., 0] - self.mu) / (self.sigma + 1e-6)))[..., None]
+        h = self.trunk(x_y) * envelope
         i_mono = self.intensity_head(h).squeeze(-1)
         return i_falloff * i_mono
 

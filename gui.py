@@ -272,6 +272,76 @@ class MainWindow(QMainWindow):
         tau_layout.addLayout(lr_layout)
         falloff_column_layout.addLayout(tau_layout)
 
+        # mu
+        mu_layout = QVBoxLayout()
+        hbox = QHBoxLayout()
+        checkbox = WidgetFactory.get_widget("checkbox", window=self)
+        label = QLabel("mu", self)
+        self.mu_spin_box = WidgetFactory.get_widget(
+            "double_spin_box",
+            window=self,
+            name="mu_spin_box",
+            step=self.GUI_config.mu_step,
+            min=self.GUI_config.mu_min,
+            max=self.GUI_config.mu_max,
+            value=self.GUI_config.mu_default,
+            decimals=self.GUI_config.mu_decimal,
+        )
+        hbox.addWidget(checkbox)
+        hbox.addWidget(label)
+        hbox.addWidget(self.mu_spin_box, alignment=Qt.AlignRight)
+        mu_layout.addLayout(hbox)
+        self.checkbox_label_pairs.append((checkbox, label))
+
+        # mu learning rate
+        lr_layout = QHBoxLayout()
+        lr_layout.addSpacing(30)
+        label = QLabel("lr")
+        lr_layout.addSpacing(15)
+        label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        lr_layout.addWidget(label)
+        self.mu_lr_input = WidgetFactory.get_widget(
+            "lr_text_input", value=str(self.training_config.mu_lr)
+        )
+        lr_layout.addWidget(self.mu_lr_input, alignment=Qt.AlignRight)
+        mu_layout.addLayout(lr_layout)
+        falloff_column_layout.addLayout(mu_layout)
+
+        # log_sigma
+        log_sigma_layout = QVBoxLayout()
+        hbox = QHBoxLayout()
+        checkbox = WidgetFactory.get_widget("checkbox", window=self)
+        label = QLabel("log_sigma", self)
+        self.log_sigma_spin_box = WidgetFactory.get_widget(
+            "double_spin_box",
+            window=self,
+            name="log_sigma_spin_box",
+            step=self.GUI_config.log_sigma_step,
+            min=self.GUI_config.log_sigma_min,
+            max=self.GUI_config.log_sigma_max,
+            value=self.GUI_config.log_sigma_default,
+            decimals=self.GUI_config.log_sigma_decimal,
+        )
+        hbox.addWidget(checkbox)
+        hbox.addWidget(label)
+        hbox.addWidget(self.log_sigma_spin_box, alignment=Qt.AlignRight)
+        log_sigma_layout.addLayout(hbox)
+        self.checkbox_label_pairs.append((checkbox, label))
+
+        # log_sigma learning rate
+        lr_layout = QHBoxLayout()
+        lr_layout.addSpacing(30)
+        label = QLabel("lr")
+        lr_layout.addSpacing(15)
+        label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        lr_layout.addWidget(label)
+        self.log_sigma_lr_input = WidgetFactory.get_widget(
+            "lr_text_input", value=str(self.training_config.log_sigma_lr)
+        )
+        lr_layout.addWidget(self.log_sigma_lr_input, alignment=Qt.AlignRight)
+        log_sigma_layout.addLayout(lr_layout)
+        falloff_column_layout.addLayout(log_sigma_layout)
+
         optical_params_layout.addLayout(falloff_column_layout)
         optical_layout.addLayout(optical_params_layout)
         optical_frame.setLayout(optical_layout)
@@ -663,9 +733,26 @@ class MainWindow(QMainWindow):
         )
         self.chroma_clamp_layout.addWidget(self.chroma_clamp_value_input)
 
+        self.outer_prior_layout = QHBoxLayout()
+        self.outer_prior_checkbox = WidgetFactory.get_widget("checkbox", window=self, checked=False)
+        self.outer_prior_layout.addWidget(self.outer_prior_checkbox)
+        self.outer_prior_layout.addWidget(QLabel("Outer Prior Weight"))
+        self.outer_prior_weight_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.outer_prior_weight_default),
+        )
+        self.outer_prior_layout.addWidget(self.outer_prior_weight_input)
+        self.outer_prior_layout.addWidget(QLabel("Radius"))
+        self.outer_prior_radius_input = WidgetFactory.get_widget(
+            "lr_text_input",
+            value=str(self.GUI_config.outer_prior_radius_default),
+        )
+        self.outer_prior_layout.addWidget(self.outer_prior_radius_input)
+
         training_column_layout.addLayout(self.consistency_layout)
         training_column_layout.addLayout(self.chroma_reg_layout)
         training_column_layout.addLayout(self.chroma_clamp_layout)
+        training_column_layout.addLayout(self.outer_prior_layout)
         training_layout.addLayout(training_column_layout)
         training_frame.setLayout(training_layout)
         self.param_layout.addWidget(training_frame)
@@ -844,7 +931,9 @@ class MainWindow(QMainWindow):
         if "light.light_color_log" in load_result.missing_keys:
             self.shading_model.light.set_light_color(self.get_light_color())
         if hasattr(self.shading_model.light, 'sigma'):
-            if self.shading_model.light.sigma.ndim == 0:
+            if hasattr(self.shading_model.light, "mu") and hasattr(self.shading_model.light, "log_sigma"):
+                self.update_shading_model_param(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.mu, self.shading_model.light.log_sigma])
+            elif self.shading_model.light.sigma.ndim == 0:
                 self.update_shading_model_param(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.sigma, 0])
             else:
                 self.update_shading_model_param(self.shading_model.albedo, self.shading_model.light.gamma, self.shading_model.light.tau, self.shading_model.ambient_light, self.shading_model.light._t_vec, self.shading_model.light._r_l2c_SO3.log(), [self.shading_model.light.sigma[0], self.shading_model.light.sigma[1]])
@@ -1093,6 +1182,12 @@ class MainWindow(QMainWindow):
     def get_tau(self) -> float:
         return self.tau_spin_box.value()
 
+    def get_mu(self) -> float:
+        return self.mu_spin_box.value()
+    
+    def get_log_sigma(self) -> float:
+        return self.log_sigma_spin_box.value()
+
     def get_translation_vector(self) -> tuple[float, float, float]:
         return tuple([self.t_layout.itemAt(i+1).itemAt(1).widget().value() for i in range(3)])
     
@@ -1100,6 +1195,8 @@ class MainWindow(QMainWindow):
         return tuple([self.r_layout.itemAt(i+1).itemAt(1).widget().value() for i in range(3)])
     
     def get_sigma(self) -> list[float]:
+        if self.get_light_source() == "1D MLP":
+            return [self.get_mu(), self.get_log_sigma()]
         return [self.sigma_x_spin_box.value(), self.sigma_y_spin_box.value()]
     
     def get_ambient(self) -> float:
@@ -1136,6 +1233,14 @@ class MainWindow(QMainWindow):
         if not self.chroma_clamp_checkbox.isChecked():
             return False, float(self.GUI_config.chroma_clamp_default)
         return True, float(self.chroma_clamp_value_input.text())
+
+    def get_outer_prior_weight(self) -> float:
+        if not self.outer_prior_checkbox.isChecked():
+            return 0.0
+        return float(self.outer_prior_weight_input.text())
+
+    def get_outer_prior_radius(self) -> float:
+        return float(self.outer_prior_radius_input.text())
 
     def onclick_stop(self):
         if self.training_thread:
@@ -1188,6 +1293,8 @@ class MainWindow(QMainWindow):
             "Albedo": float(self.albedo_lr_input.text()),
             "gamma": float(self.gamma_lr_input.text()),
             "tau": float(self.tau_lr_input.text()),
+            "mu": float(self.mu_lr_input.text()),
+            "log_sigma": float(self.log_sigma_lr_input.text()),
             "Ambient": float(self.ambient_lr_input.text()),
             "Rotation": float(self.r_lr_input.text()),
             "Translation": float(self.t_lr_input.text()),
@@ -1216,6 +1323,8 @@ class MainWindow(QMainWindow):
             chroma_reg_weight=self.get_chroma_reg_weight(),
             chroma_clamp_enabled=chroma_clamp_enabled,
             chroma_clamp_value=chroma_clamp_value,
+            outer_prior_weight=self.get_outer_prior_weight(),
+            outer_prior_radius=self.get_outer_prior_radius(),
         )
         self.training_thread.update_images.connect(self.update_images)
         self.training_thread.update_shading_model_param.connect(self.update_shading_model_param)
@@ -1224,7 +1333,7 @@ class MainWindow(QMainWindow):
         self.training_thread.training_stopped.connect(self.enable_update_button)
         self.training_thread.start()
         
-    def update_shading_model(self, albedo_value: float, gamma_value: float, tau_value: float, ambient_value: float, t_vec: tuple[float, float, float], r_vec: tuple[float, float, float], sigma: list[float]):
+    def update_shading_model(self, albedo_value: float, gamma_value: float, tau_value: float, ambient_value: float, t_vec: tuple[float, float, float], r_vec: tuple[float, float, float], sigma: list[float], mu: float | None = None, log_sigma: float | None = None):
         self.shading_model.set_albedo(albedo_value)
         self.shading_model.light.set_gamma(gamma_value)
         self.shading_model.light.set_tau(tau_value)
@@ -1232,6 +1341,10 @@ class MainWindow(QMainWindow):
         self.shading_model.light.set_t_vec(t_vec)
         self.shading_model.light.set_r_vec(r_vec)
         self.shading_model.light.set_sigma(sigma) 
+        if hasattr(self.shading_model.light, "set_mu"):
+            self.shading_model.light.set_mu(self.get_mu() if mu is None else mu)
+        if hasattr(self.shading_model.light, "set_log_sigma"):
+            self.shading_model.light.set_log_sigma(self.get_log_sigma() if log_sigma is None else log_sigma)
         self.shading_model.light.set_light_color(self.get_light_color())
 
     def update_shading_model_param(self, albedo_value: float, gamma_value: float, tau_value: float, ambient_value: float, t_vec: torch.Tensor, r_vec: torch.Tensor, sigma: list[float]):
@@ -1244,8 +1357,12 @@ class MainWindow(QMainWindow):
             for i in range(3):
                 self.r_layout.itemAt(i+1).itemAt(1).widget().setValue(r_vec[0][0][i])
                 self.t_layout.itemAt(i+1).itemAt(1).widget().setValue(t_vec[0][0][i])
-            self.sigma_x_spin_box.setValue(sigma[0])
-            self.sigma_y_spin_box.setValue(sigma[1])
+            if self.get_light_source() == "1D MLP":
+                self.mu_spin_box.setValue(sigma[0])
+                self.log_sigma_spin_box.setValue(sigma[1])
+            else:
+                self.sigma_x_spin_box.setValue(sigma[0])
+                self.sigma_y_spin_box.setValue(sigma[1])
             if self.get_color_mode() == "RGB":
                 light_color = self.shading_model.light.light_color.detach().cpu().numpy()
                 for idx, spin_box in enumerate(self.light_color_spin_boxes):
@@ -1283,6 +1400,8 @@ class MainWindow(QMainWindow):
             self.page_layout.itemAt(1).widget(),
             self.sigma_x_spin_box,
             self.sigma_y_spin_box,
+            self.mu_spin_box,
+            self.log_sigma_spin_box,
             *self.r_l2c_spin_boxes,
             *self.t_l2c_spin_boxes,
             *self.light_color_spin_boxes,
@@ -1294,6 +1413,8 @@ class MainWindow(QMainWindow):
             self.albedo_lr_input,
             self.gamma_lr_input,
             self.tau_lr_input,
+            self.mu_lr_input,
+            self.log_sigma_lr_input,
             self.ambient_lr_input,
             self.r_lr_input,
             self.t_lr_input,
@@ -1301,6 +1422,8 @@ class MainWindow(QMainWindow):
             self.consistency_weight_input,
             self.chroma_reg_weight_input,
             self.chroma_clamp_value_input,
+            self.outer_prior_weight_input,
+            self.outer_prior_radius_input,
         ]
         for widget in text_change_widgets:
             widget.textChanged.connect(self.trigger_instant_update)
@@ -1343,7 +1466,8 @@ def main():
 
     default_t_vec = (gui_config.t_layout_default["x"], gui_config.t_layout_default["y"], gui_config.t_layout_default["z"])
     default_r_vec = (gui_config.r_layout_default["x"], gui_config.r_layout_default["y"], gui_config.r_layout_default["z"])
-    main_window.update_shading_model(gui_config.albedo_default, gui_config.gamma_default, gui_config.tau_default, gui_config.ambient_default, default_t_vec, default_r_vec, [gui_config.sigma_default, gui_config.sigma_default])
+    sigma_init = [gui_config.mu_default, gui_config.log_sigma_default] if main_window.get_light_source() == "1D MLP" else [gui_config.sigma_default, gui_config.sigma_default]
+    main_window.update_shading_model(gui_config.albedo_default, gui_config.gamma_default, gui_config.tau_default, gui_config.ambient_default, default_t_vec, default_r_vec, sigma_init)
     
     main_window.check_light_comboBox()
     main_window.check_color_mode_comboBox()
