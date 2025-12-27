@@ -30,7 +30,7 @@ class TrainingConfig():
     undistort_image: bool = False
     lightmodel_lr: float = 5e-3 # lr for e.g. Sigma of Gaussians, Weights of MLP
     split: int = 4
-    color_mode: str = "Grayscale" # "Grayscale" or "RGB"
+    color_mode: str = "RGB" # "Grayscale" or "RGB"
 
 @dataclass(frozen=True)
 class GUIConfig():
@@ -66,12 +66,12 @@ class GUIConfig():
     ambient_max: float = 10.
     ambient_default: float = 0.5
     ambient_decimal: int = 3
-    r_layout_step: float = 0.001
+    r_layout_step: float = 0.01
     r_layout_min: float = -10.
     r_layout_max:  float = 10.
     r_layout_default: Dict[str, float] = field(default_factory = lambda: ({"x": -0.102, "y": -0.372, "z": 0.193}))
     r_layout_decimal: int = 3
-    t_layout_step: float = 0.001
+    t_layout_step: float = 0.01
     t_layout_min: float = -10.
     t_layout_max:  float = 10.
     t_layout_default: Dict[str, float] = field(default_factory = lambda: ({"x": 0.3, "y": -0.000, "z": 0.000}))
@@ -97,7 +97,7 @@ class GUIConfig():
     error_decimal: int = 3
     lr_input_width: int = 70
     progress_bar_length: int = 120
-    color_mode_default: str = "Grayscale"
+    color_mode_default: str = "RGB"
     light_color_step: float = 0.1
     light_color_min: float = 0.0
     light_color_max: float = 10.0

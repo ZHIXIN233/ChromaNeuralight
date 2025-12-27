@@ -182,22 +182,30 @@ class LightMLP1D(LightMLPBase):
         '''
         x_in_l = x_in_l/x_in_l[..., 2, None]
         x_y = (torch.square(x_in_l[..., 0])+torch.square(x_in_l[..., 1])).to(torch.float32)[..., None]
-        x_y = torch.sqrt(x_y)
+        x = torch.sqrt(x_y)
 
         # Positional encoding under test
-        x_y1 = torch.cos(x_y)
-        x_y2 = torch.cos(2*x_y)
-        x_y3 = torch.cos(4*x_y)
-        x_y4 = torch.cos(8*x_y)
-        x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
+        x_y1 = torch.cos(x)
+        x_y2 = torch.cos(2*x)
+        x_y3 = torch.cos(4*x)
+        x_y4 = torch.cos(8*x)
+        x_y  = torch.concat([x, x_y1, x_y2, x_y3, x_y4], dim=-1)
 
-        envelope = torch.exp(-0.5 * torch.square((x_y[..., 0] - self.mu) / (self.sigma + 1e-6)))[..., None]
-        h = self.trunk(x_y) * envelope
+        h = self.trunk(x_y)
+
+        sigma = torch.exp(self.log_sigma)
+        envelope = torch.exp(- (x - self.mu) ** 2 / (2 * sigma ** 2))
+
         i_mono = self.intensity_head(h)
+
+        i_mono = i_mono * envelope
         if self.channels == 1:
             return i_mono
         delta = self.chroma_head(h)
         delta = delta - delta.mean(dim=-1, keepdim=True)
+
+        delta = delta.clamp(-20, 20)
+
         if self.chroma_clamp_enabled:
             delta = torch.clamp(delta, -self.chroma_clamp, self.chroma_clamp)
         self.last_delta = delta
@@ -243,8 +251,8 @@ class LightMLP1D(LightMLPBase):
         x_y4 = torch.cos(8*x_y)
         x_y  = torch.concat([x_y, x_y1, x_y2, x_y3, x_y4], dim=-1)
         envelope = torch.exp(-0.5 * torch.square((x_y[..., 0] - self.mu) / (self.sigma + 1e-6)))[..., None]
-        h = self.trunk(x_y) * envelope
-        i_mono = self.intensity_head(h).squeeze(-1)
+        h = self.trunk(x_y)
+        i_mono = self.intensity_head(h).squeeze(-1) * envelope
         return i_falloff * i_mono
 
     def set_chroma_clamp(self, enabled: bool, value: float)->None:
