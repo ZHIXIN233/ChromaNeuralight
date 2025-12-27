@@ -153,13 +153,19 @@ class LightMLP1D(LightMLPBase):
             nn.Softplus(),
             nn.Linear(20, 20),
             nn.Softplus(),
-        )
-        self.intensity_head = nn.Sequential(
-            nn.Linear(20, 1),
+            nn.Linear(20, 20),
             nn.Softplus(),
         )
+        self.intensity_head = nn.Sequential(
+            nn.Linear(20, 20),
+            nn.Softplus(),
+            nn.Linear(20, 1),
+            nn.GELU()
+        )
         self.chroma_head = nn.Sequential(
-            nn.Linear(20, 3),
+            nn.Linear(20, 20),
+            nn.Softplus(),
+            nn.Linear(20, 3)
         )
         for module in [self.trunk, self.intensity_head]:
             for m in module.modules():
