@@ -205,6 +205,9 @@ class LightMLP1D(LightMLPBase):
             return i_mono
         delta = self.chroma_head(h)
         delta = delta - delta.mean(dim=-1, keepdim=True)
+        
+        delta = delta.clamp(-20, 20)
+        
         if self.chroma_clamp_enabled:
             delta = torch.clamp(delta, -self.chroma_clamp, self.chroma_clamp)
         self.last_delta = delta
