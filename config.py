@@ -25,6 +25,8 @@ class TrainingConfig():
     sigma_lr:   float = 1.
     gamma_lr:   float = 1e-2
     tau_lr:     float = 1e-2
+    mu_lr:      float = 1e-2
+    log_sigma_lr: float = 1e-2
     undistort_image: bool = False
     lightmodel_lr: float = 5e-3 # lr for e.g. Sigma of Gaussians, Weights of MLP
     split: int = 4
@@ -47,6 +49,16 @@ class GUIConfig():
     tau_max: float = 99.
     tau_default: float = 0.5
     tau_decimal: int = 2
+    mu_step: float = 0.01
+    mu_min: float = -10.
+    mu_max: float = 10.
+    mu_default: float = 0.0
+    mu_decimal: int = 3
+    log_sigma_step: float = 0.01
+    log_sigma_min: float = -10.
+    log_sigma_max: float = 5.
+    log_sigma_default: float = -1.0
+    log_sigma_decimal: int = 3
     ambient_step: float = 0.1
     ambient_min: float = 0.
     ambient_step: float = 0.1
@@ -94,6 +106,8 @@ class GUIConfig():
     consistency_weight_default: float = 0.1
     chroma_reg_weight_default: float = 1e-3
     chroma_clamp_default: float = 0.15
+    outer_prior_weight_default: float = 0.0
+    outer_prior_radius_default: float = 0.6
 
 
 
