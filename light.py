@@ -160,7 +160,7 @@ class LightMLP1D(LightMLPBase):
             nn.Linear(20, 20),
             nn.Softplus(),
             nn.Linear(20, 1),
-            nn.GELU()
+            nn.Softplus()
         )
         self.chroma_head = nn.Sequential(
             nn.Linear(20, 20),
