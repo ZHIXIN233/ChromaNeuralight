@@ -37,7 +37,7 @@ class GUIConfig():
     albedo_step: float = 0.1
     albedo_min:  float = 0.
     albedo_max:  float = 1000.
-    albedo_default: float = 20.
+    albedo_default: float = 200.
     albedo_decimal: int = 1
     gamma_step: float = 0.1
     gamma_min: float = -99.
@@ -47,7 +47,7 @@ class GUIConfig():
     tau_step: float = 0.1
     tau_min: float = -99.
     tau_max: float = 99.
-    tau_default: float = 0.5
+    tau_default: float = 0.1
     tau_decimal: int = 2
     mu_step: float = 0.01
     mu_min: float = -10.
@@ -64,17 +64,17 @@ class GUIConfig():
     ambient_step: float = 0.1
     ambient_min: float = 0.
     ambient_max: float = 10.
-    ambient_default: float = 0.5
+    ambient_default: float = 0.135
     ambient_decimal: int = 3
     r_layout_step: float = 0.01
     r_layout_min: float = -10.
     r_layout_max:  float = 10.
-    r_layout_default: Dict[str, float] = field(default_factory = lambda: ({"x": -0.102, "y": -0.372, "z": 0.193}))
+    r_layout_default: Dict[str, float] = field(default_factory = lambda: ({"x": -0.021, "y": -0.200, "z": 0.310}))
     r_layout_decimal: int = 3
     t_layout_step: float = 0.01
     t_layout_min: float = -10.
     t_layout_max:  float = 10.
-    t_layout_default: Dict[str, float] = field(default_factory = lambda: ({"x": 0.3, "y": -0.000, "z": 0.000}))
+    t_layout_default: Dict[str, float] = field(default_factory = lambda: ({"x": 0.3, "y": -0.080, "z": 0.050}))
     t_layout_decimal: int = 3
     sigma_step: float = 0.1
     sigma_min: float = -100.
